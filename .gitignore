@@ -27,5 +27,7 @@ PROGRESS.md
 tmp/
 scratch/
 .agent/
+.agent-shots/
+.agent-*.log
 .swarm/
 .opencode/
