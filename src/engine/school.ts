@@ -12,7 +12,7 @@
 
 import { evaluateSegment, resolveParams } from './predict';
 import { makeStagnationCache } from './background';
-import { addHours, formatLocalTime, toIso, toMs } from './time';
+import { addHours, formatLocalTime, localDayStartISO, toIso, toMs } from './time';
 import type {
   EngineParams,
   EvalContext,
@@ -36,8 +36,12 @@ export function schoolWindow(
   const params: EngineParams = resolveParams(ctx);
   const stagnationCache = makeStagnationCache(params, ctx.forecast);
 
-  const startMs = toMs(dayStartISO);
-  const baseISO = Number.isFinite(startMs) ? dayStartISO : toIso(0);
+  // The contract says dayStartISO is already 00:00 NPT. We re-derive the NPT day
+  // start anyway so that a caller passing any instant on the intended day still gets
+  // the same 06:00–17:00 NPT window — this is what keeps the window anchored to Nepal
+  // local time rather than UTC or the browser timezone.
+  const rawStartMs = toMs(dayStartISO);
+  const baseISO = Number.isFinite(rawStartMs) ? localDayStartISO(dayStartISO) : toIso(0);
 
   const hours: SchoolHour[] = [];
   for (let h = SCHOOL_START_LOCAL_HOUR; h <= SCHOOL_END_LOCAL_HOUR; h++) {

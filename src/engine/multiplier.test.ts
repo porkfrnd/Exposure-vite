@@ -212,7 +212,7 @@ describe('predict (uncorrected C_bg · m′)', () => {
   it('honours a params override for roadExcess', () => {
     const fc = flatForecast(40);
     const seg = makeSegment({ roadClass: 'primary' });
-    const ctx = { forecast: fc, params: { roadExcess: { primary: 0.5 } } };
+    const ctx = { forecast: fc, params: { roadExcess: { ...P.roadExcess, primary: 0.5 } } };
     // 1 + 0.5 = 1.5 → 40 · 1.5 = 60.
     expect(engine.predict(seg, OFF_PEAK_UTC, ctx).concentration).toBeCloseTo(60, 9);
   });

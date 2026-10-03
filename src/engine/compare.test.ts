@@ -181,9 +181,10 @@ describe('compareRoutes', () => {
     const routeA = makeRoute('A', [shared, busy]);
     const routeB = makeRoute('B', [shared, quiet]);
 
-    const out = engine.compareRoutes([routeA, routeB], 'A', 'walk', OFF_PEAK_UTC, ctxOf(fc), {
-      draws: 400,
+    const out = engine.compareRoutes([routeA, routeB], 'A', 'walk', OFF_PEAK_UTC, {
+      ...ctxOf(fc),
       seed: 5,
+      draws: 400,
     });
     const v = out.versus.find((x) => x.routeId === 'B');
     expect(v).toBeDefined();
@@ -352,8 +353,9 @@ describe('schoolWindow (methodology 3.5)', () => {
   it('covers local hours 06:00 to 17:00 inclusive (12 hours)', () => {
     const out = schoolWindow(schoolSeg, '2026-10-04T18:15:00Z', 'outdoor', ctxOf(dayForecast()));
     expect(out.hours.length).toBe(12);
-    expect(out.hours[0].timeISO).toBe('2026-10-04T19:00:00Z'); // 06:00 NPT
-    expect(out.hours[11].timeISO).toBe('2026-10-05T06:00:00Z'); // 17:00 NPT
+    // NPT midnight is 2026-10-04T18:15Z, so 06:00 NPT is 00:15Z and 17:00 NPT is 11:15Z.
+    expect(out.hours[0].timeISO).toBe('2026-10-05T00:15:00Z');
+    expect(out.hours[11].timeISO).toBe('2026-10-05T11:15:00Z');
   });
 
   it('test: picks the longest contiguous low block', () => {
