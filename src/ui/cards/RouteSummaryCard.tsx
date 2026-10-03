@@ -111,7 +111,12 @@ export function RouteSummaryCard(props: SummaryCardProps) {
         <span className={`${badge.tone} rounded-full px-2.5 py-1 text-xs font-semibold border`}>
           {badge.text}
         </span>
-        {verdict !== 'none' && facts && (
+        {/*
+          Shown whenever the router gave us numbers, not only when there is a
+          winner: "no clear difference" is still a real trip with a real
+          distance and duration.
+        */}
+        {facts && (
           <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{facts}</span>
         )}
       </div>

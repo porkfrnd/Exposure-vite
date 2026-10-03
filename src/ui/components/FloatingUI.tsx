@@ -394,7 +394,12 @@ export function RoutePlannerCard({
                 className="min-w-0 flex-1 truncate text-left text-sm text-slate-900 dark:text-slate-100"
               >
                 <span className="sr-only">{isOrigin ? 'From' : 'To'}: </span>
-                {current ? current.name : isOrigin ? 'Your location' : 'Choose destination'}
+                {/*
+                  Never say "Your location" unless a location was actually
+                  obtained. When permission is denied there is no origin, and
+                  claiming otherwise is a false statement about real data.
+                */}
+                {current ? current.name : isOrigin ? 'Choose origin' : 'Choose destination'}
               </button>
               {current && (
                 <button
