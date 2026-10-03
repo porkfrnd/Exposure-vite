@@ -176,6 +176,8 @@ export interface EvalContext {
   corrections?: CorrectionMap;
   params?: Partial<EngineParams>;
   seed?: number;                      // Monte Carlo seed, default fixed ⇒ deterministic
+  /** ADDITIVE EXTENSION: Monte Carlo draw count for compareRoutes/departureSweep. Default 300. */
+  draws?: number;
 }
 
 export interface SegmentEstimate {
