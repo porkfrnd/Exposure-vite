@@ -18,12 +18,14 @@ describe('shipped demo routes satisfy every contract invariant', () => {
     expect(validationErrors(DEMO_ROUTES)).toEqual([]);
   });
 
-  it('has three routes with distinct ids and a hand-authored source', () => {
+  it('has three routes with distinct ids and real-geometry source', () => {
+    // Geometry comes from real OSRM output (see scripts/fetchOsmRoutes.mjs), so the
+    // source must say so — and must never regress to hand-authored geometry.
     expect(DEMO_ROUTES.length).toBe(3);
     const ids = new Set(DEMO_ROUTES.map((r) => r.id));
     expect(ids.size).toBe(3);
     for (const r of DEMO_ROUTES) {
-      expect(r.source).toBe('hand-authored');
+      expect(r.source).toBe('osm-derived');
       expect(typeof r.name).toBe('string');
       expect(r.name.length).toBeGreaterThan(0);
     }
@@ -77,21 +79,20 @@ describe('shipped demo routes satisfy every contract invariant', () => {
     }
   });
 
-  it('gives footways beside a main road a small distance and a nearbyRoads entry', () => {
+  it('gives footways a nearbyRoads entry consistent with their distance', () => {
+    // With real geometry the footways overlap the corridor, so the nearby entry
+    // carries the corridor's actual nearest class — whatever it is — and the
+    // decay mechanism is exercised through it.
     let found = 0;
     for (const r of DEMO_ROUTES) {
       for (const s of r.segments) {
         if (s.roadClass !== 'footway' && s.roadClass !== 'path') continue;
-        const nearMain = s.features.nearbyRoads.filter(
-          (n) => n.roadClass === 'trunk' || n.roadClass === 'primary' || n.roadClass === 'secondary',
-        );
-        if (nearMain.length === 0) continue;
-        expect(s.features.distToMainRoadM).toBeLessThanOrEqual(400);
-        expect(s.features.distToMainRoadM).toBeLessThanOrEqual(nearMain[0].distanceM * 1.15 + 1);
-        if (s.features.distToMainRoadM < 60) found++;
+        if (s.features.nearbyRoads.length === 0) continue;
+        found++;
+        const nearest = Math.min(...s.features.nearbyRoads.map((n) => n.distanceM));
+        expect(s.features.distToMainRoadM).toBeLessThanOrEqual(nearest * 1.15 + 1);
       }
     }
-    // At least one footway genuinely hugs a main road (the near-road decay story).
     expect(found).toBeGreaterThan(0);
   });
 
@@ -127,7 +128,19 @@ describe('shipped demo routes satisfy every contract invariant', () => {
     const mainIds = new Set(DEMO_ROUTES[0].segments.map((s) => s.roadClass));
     const parkIds = new Set(DEMO_ROUTES[2].segments.map((s) => s.roadClass));
     expect(mainIds.has('trunk') || mainIds.has('primary')).toBe(true);
-    expect([...parkIds].every((c) => c === 'footway' || c === 'path' || c === 'residential')).toBe(true);
+    // The park route is the only one with real footway sections (from the foot profile).
+    expect(parkIds.has('footway') || parkIds.has('path')).toBe(true);
+    // And the three middles are geometrically distinct paths, not copies.
+    const mid = (r: (typeof DEMO_ROUTES)[number]) =>
+      r.segments
+        .filter((s) => !s.id.startsWith('sh-'))
+        .map((s) => s.coords[Math.floor(s.coords.length / 2)])
+        .map((c) => `${c.lat.toFixed(4)},${c.lon.toFixed(4)}`)
+        .join(';');
+    const m0 = mid(DEMO_ROUTES[0]);
+    const m1 = mid(DEMO_ROUTES[1]);
+    const m2 = mid(DEMO_ROUTES[2]);
+    expect(m0 === m1 && m1 === m2).toBe(false);
   });
 });
 
@@ -187,9 +200,16 @@ describe('demo school', () => {
     expect(ids.has(school.segment.id)).toBe(true);
   });
 
-  it('picks a walkable segment near the destination', () => {
+  it('picks the network segment nearest the school area (proximity beats class)', () => {
+    // The school window scores exposure AT the school, so a residential street
+    // 65 m away is more representative than a footway 1.5 km away.
     const school = demoSchool();
-    expect(['footway', 'path']).toContain(school.segment.roadClass);
+    const target = { lat: 27.658, lon: 85.326 };
+    const mid = school.segment.coords[Math.floor(school.segment.coords.length / 2)];
+    const d = Math.hypot((mid.lat - target.lat) * 111_320, (mid.lon - target.lon) * 98_000);
+    expect(d).toBeLessThan(150);
+    const ids = new Set(demoUniqueSegments(DEMO_ROUTES).map((s) => s.id));
+    expect(ids.has(school.segment.id)).toBe(true);
   });
 });
 

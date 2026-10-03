@@ -89,7 +89,7 @@ src/
 | Rush hours (local) | **Assumed** | 07–09, 16–18 on trunk/primary/secondary, factor 1.5 |
 | Stagnation α, clamps | **Assumed** | α=0.5, clamp [0.5, 2], u_min=0.5 m/s |
 | Mode params | **Assumed** | walk 4.5 km/h 1.3 m³/h; cycle 15 km/h 2.8 m³/h; bus 12 km/h 0.7 m³/h × 0.9 infiltration |
-| Demo routes | **Synthetic** | Hand-authored geometry (3 routes, 13–18 segments each, 3–3.9 km, 2 shared segments). Source: 'hand-authored'. |
+| Demo routes | **Real geometry, authored features** | Paths follow real OSM roads via OSRM (`scripts/fetchOsmRoutes.mjs`, source: 'osm-derived'; 3 routes, 15–22 segments each, 3.4–4.6 km, 2 shared segments). Road classes + density features are hand-authored ASSUMED proxies, not OSM tags. |
 | Seed observations | **Synthetic** | 30 items (24 photo / 6 report), `isSimulated: true`, deterministic per anchor hour. |
 | Haze photos (user) | **Real** | User upload → dark-channel analysis → relative haze index. |
 | Crowd reports | **Real** | User taps smoky/dusty/clear → fixed log-residual. |
@@ -105,7 +105,7 @@ All assumed values are listed in the app's **Assumptions** table (Scientific Bre
 2. **Road multipliers are assumptions** — from general air-pollution literature, not Kathmandu measurements.
 3. **Photo haze is a relative nudge** — affected by light, cloud, sun angle, unknown scene depth.
 3. **Dust from roadworks/unpaved roads** not captured by road class.
-4. **Demo routes are hand-authored** — not OSM/OSRM output.
+4. **Demo route features are authored** — paths are real OSM roads, but road classes, green fractions and densities on them are proxies, not OSM tags.
 5. **Outputs are modeled estimates** — never medical or health-risk claims. The app never says "safe" or "dangerous".
 
 ---

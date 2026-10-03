@@ -10,7 +10,7 @@
  *
  * SYNTHETIC DATA RULE: every fabricated artefact lives under src/data/fixtures/ and
  * is labelled (Forecast.source 'fixture', Observation.isSimulated, route
- * source 'hand-authored'). Nothing here is a measurement.
+ * source 'osm-derived' with hand-authored feature proxies). Nothing here is a measurement.
  */
 
 import { fetchForecast } from './forecast/client';
@@ -54,7 +54,7 @@ export const dataApi: DataApi = {
 
 /**
  * Validation issues found in the shipped demo route fixture. Empty means the
- * hand-authored geometry satisfies every contract invariant.
+ * OSM-derived geometry satisfies every contract invariant.
  */
 export function demoRouteIssues(): string[] {
   return DEMO_ROUTE_ISSUES;

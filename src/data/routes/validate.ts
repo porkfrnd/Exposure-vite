@@ -2,7 +2,7 @@
  * Runtime validators for contract invariants.
  *
  * These run against the shipped demo routes in tests AND can be run in the app's
- * development console, so a malformed hand-authored route can never silently reach
+ * development console, so a malformed demo route can never silently reach
  * the engine.
  *
  * Rules checked:

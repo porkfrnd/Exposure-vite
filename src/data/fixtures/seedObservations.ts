@@ -24,9 +24,13 @@ const PHOTO_COUNT = 24;
 const REPORT_COUNT = 6;
 
 /**
- * Clusters are placed along the demo corridor. Coordinates are jittered
- * deterministically around each cluster centre. These positions are HAND-AUTHORED
- * approximations, not GPS fixes from real contributors.
+ * Clusters sit ON the demo route geometry. Each centre below is the midpoint of a
+ * real route segment (measured from demoRoutes.json; see scripts/fetchOsmRoutes.mjs
+ * sample output), with deterministic jitter around it. These positions are
+ * HAND-PLACED on the route geometry, not GPS fixes from real contributors.
+ *
+ * Order matters for tests: the first three clusters are the haziest (main road),
+ * then residential, then the two lightest (footways).
  */
 interface Cluster {
   lat: number;
@@ -37,15 +41,15 @@ interface Cluster {
 }
 
 const CLUSTERS: Cluster[] = [
-  // Main road corridor: heaviest simulated haze.
-  { lat: 27.6735, lon: 85.3105, spreadM: 60, tauCentre: 0.55 },
-  { lat: 27.6698, lon: 85.3148, spreadM: 70, tauCentre: 0.62 },
-  { lat: 27.666, lon: 85.3188, spreadM: 65, tauCentre: 0.5 },
-  // Residential grid: moderate.
-  { lat: 27.671, lon: 85.3088, spreadM: 80, tauCentre: 0.3 },
-  // Park / open ground: lightest.
-  { lat: 27.6642, lon: 85.3122, spreadM: 90, tauCentre: 0.16 },
-  { lat: 27.6618, lon: 85.3215, spreadM: 75, tauCentre: 0.2 },
+  // Main road corridor: heaviest simulated haze (on primary segments).
+  { lat: 27.669, lon: 85.3063, spreadM: 60, tauCentre: 0.55 },
+  { lat: 27.6661, lon: 85.3108, spreadM: 70, tauCentre: 0.62 },
+  { lat: 27.663, lon: 85.3164, spreadM: 65, tauCentre: 0.5 },
+  // Residential side street, genuinely off the corridor (distToMainRoadM ≈ 861 m).
+  { lat: 27.6715, lon: 85.3187, spreadM: 80, tauCentre: 0.3 },
+  // Footways: lightest. The second sits on the corridor itself (near-road decay story).
+  { lat: 27.6653, lon: 85.3135, spreadM: 90, tauCentre: 0.16 },
+  { lat: 27.6684, lon: 85.3068, spreadM: 75, tauCentre: 0.2 },
 ];
 
 const REPORTS: Array<{ report: ReportObservation['report']; cluster: number }> = [
