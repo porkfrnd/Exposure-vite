@@ -304,6 +304,31 @@ export function useAppStore() {
     setDestination(origin);
   }, [origin, destination]);
 
+  /**
+   * Endpoint setters that drop stale routes when an endpoint is removed.
+   * Without this, clearing the destination leaves the previous trip's lines on
+   * the map even though no trip can be planned any more.
+   */
+  const assignOrigin = useCallback((p: Place | null) => {
+    setOrigin(p);
+    if (!p) {
+      abortRef.current?.abort();
+      setPlanned([]);
+      setRouteError(null);
+      setBaselineRouteId('');
+    }
+  }, []);
+
+  const assignDestination = useCallback((p: Place | null) => {
+    setDestination(p);
+    if (!p) {
+      abortRef.current?.abort();
+      setPlanned([]);
+      setRouteError(null);
+      setBaselineRouteId('');
+    }
+  }, []);
+
   const clearAll = useCallback(() => {
     setAppState('EXPLORE');
     setSelectedPlace(null);
@@ -332,9 +357,9 @@ export function useAppStore() {
 
     selectedPlace,
     origin,
-    setOrigin,
+    setOrigin: assignOrigin,
     destination,
-    setDestination,
+    setDestination: assignDestination,
 
     mode,
     setMode,

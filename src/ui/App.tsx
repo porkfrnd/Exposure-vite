@@ -28,9 +28,10 @@ import { FeatureDock } from './cards/Dock';
 import { EvidenceModal } from './cards/EvidenceModal';
 import { useAppStore, pm25Near, pm25Band } from './state/appStore';
 import { useTheme } from './theme/useTheme';
-import { formatLocalTime, VALLEY } from './wiring';
+import { formatLocalTime } from './wiring';
 import { exposureColor, extentOf } from './map/ramp';
-import type { LatLon } from '@/contracts';
+import { HONESTY_PILL, sourceBadge } from './design';
+import type { Forecast, LatLon } from '@/contracts';
 
 export function App() {
   const store = useAppStore();
@@ -159,6 +160,14 @@ export function App() {
   const showRouter = appState === 'ROUTING';
   const hasRoutes = routes.length > 0;
 
+  // REAL router distance/time per route id. Facts about the road network, so
+  // they come from OSRM and never from the exposure engine.
+  const realMetrics = useMemo(() => {
+    const out: Record<string, { durationS: number; distanceM: number }> = {};
+    for (const p of store.planned) out[p.id] = { durationS: p.durationS, distanceM: p.distanceM };
+    return out;
+  }, [store.planned]);
+
   return (
     <div className="relative h-dvh w-screen overflow-hidden">
       {/* Map is unconditional: it must never unmount. */}
@@ -178,10 +187,11 @@ export function App() {
       />
 
       {/* Honesty banner — always visible, never blocking. */}
-      <div className="pointer-events-none absolute left-1/2 top-[4.25rem] z-[1150] -translate-x-1/2 max-sm:top-[4.5rem]">
+      <div className="pointer-events-none absolute left-1/2 top-[4.25rem] z-[1150] flex -translate-x-1/2 flex-col items-center gap-1 max-sm:top-[4.5rem]">
         <span className="rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[11px] font-medium text-slate-700 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200">
-          Modeled estimate · not a measurement · not medical advice
+          {HONESTY_PILL}
         </span>
+        <ForecastSourceBadge forecast={store.forecast} />
       </div>
 
       {/* ── State A / C: search + planner (top-left) ─────────────────────── */}
@@ -237,6 +247,7 @@ export function App() {
         <RouteSummaryCard
           comparison={comparison}
           routes={routes}
+          realMetrics={realMetrics}
           bestTimeHint={null}
           onOpenBreakdown={() => {
             setBreakdownSection(undefined);
@@ -297,9 +308,7 @@ export function App() {
         onClose={() => setEvidenceOpen(false)}
         observations={store.observations}
         showSimulated={false}
-        defaultLocation={
-          (store.destination ?? store.selectedPlace ?? store.origin) ?? VALLEY
-        }
+        defaultLocation={store.destination ?? store.selectedPlace ?? store.origin}
         currentISO={new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}
         forecast={store.forecast}
         segments={store.segments}
@@ -331,4 +340,34 @@ export function App() {
 }
 
 export { pm25Near, pm25Band, formatLocalTime };
+
+/**
+ * Always-visible data-source disclosure.
+ *
+ * The Forecast contract reserves source:'fixture' for a SYNTHETIC offline
+ * fallback and requires the UI to say so. Silent degradation to synthetic data
+ * would be a fabricated-data claim, so the badge is unconditional and states
+ * plainly when NO forecast could be loaded at all.
+ */
+function ForecastSourceBadge({ forecast }: { forecast: Forecast | null }) {
+  if (!forecast) {
+    return (
+      <span
+        title="Open-Meteo could not be reached, so no exposure estimate is available."
+        className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 dark:border-amber-400/40 dark:bg-amber-900/90 dark:text-amber-200"
+      >
+        Forecast unavailable — no exposure estimate shown
+      </span>
+    );
+  }
+  const badge = sourceBadge(forecast.source);
+  return (
+    <span
+      title={badge.title}
+      className={`rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[11px] font-medium backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 ${badge.tone}`}
+    >
+      {badge.label}
+    </span>
+  );
+}
 export type { LatLon };

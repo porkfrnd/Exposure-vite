@@ -8,11 +8,18 @@
 
 import { Camera, ChevronUp, Info, MessageSquarePlus } from 'lucide-react';
 import { ACCENT, FOCUS_RING, GLASS_CARD, MOTION, NUMBERS, OVERLAY_Z, TOUCH_TARGET } from '../design';
+import { routeFactsText } from '../format';
 import type { Comparison, Route } from '@/contracts';
 
 export interface SummaryCardProps {
   comparison: Comparison | null;
   routes: Route[];
+  /**
+   * REAL router metrics per route id, straight from OSRM. Distance and time
+   * must never be inferred from the exposure engine — they are facts about the
+   * road network and belong to the router.
+   */
+  realMetrics?: Record<string, { durationS: number; distanceM: number }>;
   bestTimeHint: string | null;
   onOpenBreakdown: () => void;
   onAddEvidence: () => void;
@@ -68,6 +75,14 @@ export function RouteSummaryCard(props: SummaryCardProps) {
 
   const minutes = bestTrip?.durationMin ?? baselineTrip?.durationMin ?? 0;
 
+  // Prefer the REAL router numbers; fall back to the engine estimate, clearly
+  // marked with "~" so an estimate is never read as a measurement.
+  const shownId = comparison.bestRouteId || comparison.baselineRouteId;
+  const facts = routeFactsText({
+    real: props.realMetrics?.[shownId] ?? null,
+    estimatedMinutes: minutes,
+  });
+
   return (
     <div
       className={`${GLASS_CARD} ${OVERLAY_Z} pointer-events-auto absolute bottom-4 left-4 w-[min(22rem,calc(100vw-2rem))] p-4 ${
@@ -96,10 +111,8 @@ export function RouteSummaryCard(props: SummaryCardProps) {
         <span className={`${badge.tone} rounded-full px-2.5 py-1 text-xs font-semibold border`}>
           {badge.text}
         </span>
-        {verdict !== 'none' && Number.isFinite(minutes) && minutes > 0 && (
-          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-            <span className={NUMBERS}>~{Math.round(minutes)}</span> min
-          </span>
+        {verdict !== 'none' && facts && (
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{facts}</span>
         )}
       </div>
 

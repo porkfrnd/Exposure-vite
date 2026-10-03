@@ -29,7 +29,8 @@ export interface EvidenceModalProps {
   onClose: () => void;
   observations: Observation[];
   showSimulated: boolean;
-  defaultLocation: LatLon;
+  /** May be null: we never invent a coordinate. The user must pick or locate one. */
+  defaultLocation: LatLon | null;
   currentISO: string;
   forecast: Forecast | null;
   segments: Segment[];
@@ -75,7 +76,7 @@ async function fileToRaster(file: File, maxWidth = 640): Promise<RasterImage | n
 
 export function EvidenceModal(props: EvidenceModalProps) {
   const { open, onClose } = props;
-  const [location, setLocation] = useState<LatLon>(props.defaultLocation);
+  const [location, setLocation] = useState<LatLon | null>(props.defaultLocation);
   const [locating, setLocating] = useState(false);
   const [haze, setHaze] = useState<HazeResult | null>(null);
   const [scene, setScene] = useState<'open' | 'canyon'>('open');
@@ -142,7 +143,7 @@ export function EvidenceModal(props: EvidenceModalProps) {
   }, [props]);
 
   const addPhoto = useCallback(() => {
-    if (!haze) return;
+    if (!haze || !location) return;
     const obs: PhotoObservation = {
       id: `photo-${Date.now().toString(36)}`,
       kind: 'photo',
@@ -160,6 +161,7 @@ export function EvidenceModal(props: EvidenceModalProps) {
 
   const addReport = useCallback(
     (report: ReportObservation['report']) => {
+      if (!location) return;
       const obs: ReportObservation = {
         id: `report-${Date.now().toString(36)}-${report}`,
         kind: 'report',
@@ -211,9 +213,15 @@ export function EvidenceModal(props: EvidenceModalProps) {
         <div className="mt-3 rounded-xl bg-slate-100/80 p-2.5 dark:bg-slate-800/60">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200">
             <MapPin size={13} aria-hidden />
-            <span className={NUMBERS}>
-              {location.lat.toFixed(5)}, {location.lon.toFixed(5)}
-            </span>
+            {location ? (
+              <span className={NUMBERS}>
+                {location.lat.toFixed(5)}, {location.lon.toFixed(5)}
+              </span>
+            ) : (
+              <span className="font-semibold text-amber-700 dark:text-amber-300">
+                No place chosen yet — pick one or use your location
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -304,7 +312,8 @@ export function EvidenceModal(props: EvidenceModalProps) {
               <button
                 type="button"
                 onClick={addPhoto}
-                className={`${FOCUS_RING} ${MOTION} mt-2 w-full rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500`}
+                disabled={!location}
+                className={`${FOCUS_RING} ${MOTION} mt-2 w-full rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 Add this photo
               </button>
@@ -319,21 +328,24 @@ export function EvidenceModal(props: EvidenceModalProps) {
             <button
               type="button"
               onClick={() => addReport('smoky')}
-              className={`${FOCUS_RING} ${MOTION} rounded-xl bg-white px-2 py-2 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-600`}
+              disabled={!location}
+              className={`${FOCUS_RING} ${MOTION} rounded-xl bg-white px-2 py-2 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-600`}
             >
               Smoky
             </button>
             <button
               type="button"
               onClick={() => addReport('dusty')}
-              className={`${FOCUS_RING} ${MOTION} rounded-xl bg-white px-2 py-2 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-600`}
+              disabled={!location}
+              className={`${FOCUS_RING} ${MOTION} rounded-xl bg-white px-2 py-2 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-600`}
             >
               Dusty
             </button>
             <button
               type="button"
               onClick={() => addReport('clear')}
-              className={`${FOCUS_RING} ${MOTION} rounded-xl bg-white px-2 py-2 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-600`}
+              disabled={!location}
+              className={`${FOCUS_RING} ${MOTION} rounded-xl bg-white px-2 py-2 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-600`}
             >
               Clear
             </button>
