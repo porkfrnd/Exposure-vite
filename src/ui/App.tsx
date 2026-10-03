@@ -20,6 +20,9 @@ import { BreakdownDrawer, currentEngineParams } from './cards/BreakdownDrawer';
 import { FeatureDock, HonestyPill, MapLegend, SimulatedToggle } from './cards/Dock';
 import type { DockId } from './cards/Dock';
 import { EvidenceModal } from './cards/EvidenceModal';
+import { DiaryModal } from './cards/DiaryModal';
+import { SchoolModal } from './cards/SchoolModal';
+import { DemoTourModal } from './cards/DemoTourModal';
 import { useExposureModel } from './state/useExposureModel';
 import { useTheme } from './theme/useTheme';
 import { engine, formatLocalTime } from './wiring';
@@ -34,6 +37,9 @@ export function App() {
   const [breakdownSection, setBreakdownSection] = useState<string | undefined>(undefined);
   const [summaryCollapsed, setSummaryCollapsed] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [diaryOpen, setDiaryOpen] = useState(false);
+  const [schoolOpen, setSchoolOpen] = useState(false);
+  const [demoOpen, setDemoOpen] = useState(false);
   const [dockPanel, setDockPanel] = useState<DockId | null>(null);
   const [showSimulated, setShowSimulated] = useState(true);
   const [tileFailed, setTileFailed] = useState(false);
@@ -209,6 +215,18 @@ export function App() {
       setEvidenceOpen(true);
       return;
     }
+    if (id === 'diary') {
+      setDiaryOpen(true);
+      return;
+    }
+    if (id === 'school') {
+      setSchoolOpen(true);
+      return;
+    }
+    if (id === 'demo') {
+      setDemoOpen(true);
+      return;
+    }
     setDockPanel(id);
   }, [openBreakdown]);
 
@@ -370,6 +388,31 @@ export function App() {
           model.applyFittedBias(bias);
           setToast('Fitted bias correction applied to all computations.');
         }}
+      />
+
+      <DiaryModal
+        open={diaryOpen}
+        onClose={() => setDiaryOpen(false)}
+        routes={routes}
+        mode={model.mode}
+        baselineRouteId={model.baselineRouteId}
+        comparison={comparison}
+        forecast={forecast}
+        departISO={departISO}
+        onToast={setToast}
+      />
+
+      <SchoolModal
+        open={schoolOpen}
+        onClose={() => setSchoolOpen(false)}
+        forecast={forecast}
+        segments={model.segments}
+      />
+
+      <DemoTourModal
+        open={demoOpen}
+        onClose={() => setDemoOpen(false)}
+        routes={routes}
       />
 
       {dockPanel && dockPanel !== 'method' && dockPanel !== 'evidence' && (
