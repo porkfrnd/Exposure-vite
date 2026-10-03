@@ -225,21 +225,13 @@ export function BreakdownDrawer(props: BreakdownDrawerProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [props.open, props.onClose]);
 
-  if (!props.open) return null;
-
-  const toggle = (id: SectionId) =>
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const isOpen = (id: SectionId) => openSections.has(id);
-  const params = props.params;
-  const nameOf = (id: string) => props.routes.find((r) => r.id === id)?.name ?? id;
-
   // ── Validation / backtest state ────────────────────────────────────────────
+  //
+  // These hooks MUST sit above the `if (!props.open) return null` below.
+  // React requires the same hooks in the same order on every render. When the
+  // closed render skipped them and the open render called them, React raised
+  // "Rendered more hooks than during the previous render" and unmounted the
+  // whole application — clicking this drawer took the entire app down.
   type ValidationState = 'idle' | 'running' | 'success' | 'error';
   const [validationState, setValidationState] = useState<ValidationState>('idle');
   const [validationError, setValidationError] = useState<string>('');
@@ -266,6 +258,20 @@ export function BreakdownDrawer(props: BreakdownDrawerProps) {
       setValidationError(err instanceof Error ? err.message : 'Unknown error');
     }
   }, []);
+
+  if (!props.open) return null;
+
+  const toggle = (id: SectionId) =>
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const isOpen = (id: SectionId) => openSections.has(id);
+  const params = props.params;
+  const nameOf = (id: string) => props.routes.find((r) => r.id === id)?.name ?? id;
 
   const selectedTrip = props.comparison?.trips.find((t) =>
     t.segments.some((s) => s.segmentId === props.selectedSegmentId),
