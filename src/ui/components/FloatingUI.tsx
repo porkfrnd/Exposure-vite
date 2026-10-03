@@ -175,7 +175,9 @@ export function TopSearch({
   onPick,
 }: PlaceSearchProps) {
   return (
-    <div className={`${OVERLAY} left-4 right-4 top-4 max-w-2xl`}>
+    // On narrow screens the right edge stops short of the dock: a full-width bar
+    // sat on top of the "Add evidence" button and hid it completely.
+    <div className={`${OVERLAY} left-4 right-4 top-4 max-w-2xl max-sm:right-[4.75rem]`}>
       <div className={CARD}>
         <PlaceSearch
           value={value}
@@ -341,7 +343,8 @@ export function RoutePlannerCard({
   const pm = destination ? pm25Near(forecast, nowMs) : null;
 
   return (
-    <div className={`${OVERLAY} left-4 top-4 w-[calc(100vw-2rem)] max-w-sm ${CARD} p-3 max-sm:left-2 max-sm:top-2`}>
+    // Stops short of the dock on narrow screens so no control is ever covered.
+    <div className={`${OVERLAY} left-4 top-4 w-[calc(100vw-2rem)] max-w-sm max-sm:w-[calc(100vw-6.5rem)] ${CARD} p-3 max-sm:left-2 max-sm:top-2`}>
       <div className="flex items-center gap-2">
         <h2 className="flex-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
           Least polluted route

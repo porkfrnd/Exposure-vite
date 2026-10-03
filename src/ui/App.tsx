@@ -186,10 +186,17 @@ export function App() {
         handleRef={setMapHandle}
       />
 
-      {/* Honesty banner — always visible, never blocking. */}
-      <div className="pointer-events-none absolute left-1/2 top-[4.25rem] z-[1150] flex -translate-x-1/2 flex-col items-center gap-1 max-sm:top-[4.5rem]">
+      {/*
+        Honesty banner — always visible, never blocking.
+
+        The width is capped short of the dock so the disclaimer can never cover
+        the "Add evidence" button on a narrow screen, and the text is abridged
+        on small screens so it does not wrap into a tall block.
+      */}
+      <div className="pointer-events-none absolute left-1/2 top-[4.25rem] z-[1150] flex w-[min(28rem,calc(100vw-6rem))] -translate-x-1/2 flex-col items-center gap-1 max-sm:top-[4.5rem]">
         <span className="rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[11px] font-medium text-slate-700 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200">
-          {HONESTY_PILL}
+          <span className="max-sm:hidden">{HONESTY_PILL}</span>
+          <span className="hidden max-sm:inline">Modeled estimate · not a measurement</span>
         </span>
         <ForecastSourceBadge forecast={store.forecast} />
       </div>
@@ -279,8 +286,6 @@ export function App() {
       />
 
       <FeatureDock
-        theme={theme}
-        onToggleTheme={toggle}
         onOpen={(id) => {
           if (id === 'method') {
             setBreakdownSection('how');

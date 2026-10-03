@@ -9,14 +9,11 @@ import {
   Camera,
   FlaskConical,
   MessageSquarePlus,
-  Moon,
   Play,
   School,
-  Sun,
 } from 'lucide-react';
 import { FOCUS_RING, GLASS_CARD, HONESTY_PILL, MOTION, OVERLAY_Z, OVERLAY_Z_TOP, TOUCH_TARGET, sourceBadge } from '../design';
 import { RAMP_GRADIENT } from '../map/ramp';
-import type { Theme } from '../theme/useTheme';
 
 const DOCK_ITEMS = [
   { id: 'evidence', label: 'Add evidence', Icon: Camera },
@@ -29,25 +26,13 @@ const DOCK_ITEMS = [
 export type DockId = (typeof DOCK_ITEMS)[number]['id'];
 
 export interface FeatureDockProps {
-  theme: Theme;
-  onToggleTheme: () => void;
   onOpen: (id: DockId) => void;
   onAddEvidence: () => void;
 }
 
-export function FeatureDock({ theme, onToggleTheme, onOpen, onAddEvidence }: FeatureDockProps) {
+export function FeatureDock({ onOpen, onAddEvidence }: FeatureDockProps) {
   return (
     <div className={`${OVERLAY_Z} pointer-events-auto absolute right-3 top-3 flex flex-col items-end gap-2 sm:right-4 sm:top-4`}>
-      <button
-        type="button"
-        onClick={onToggleTheme}
-        aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
-        className={`${FOCUS_RING} ${MOTION} ${GLASS_CARD} flex ${TOUCH_TARGET} items-center justify-center p-2.5 text-slate-700 dark:text-slate-200`}
-      >
-        {theme === 'dark' ? <Sun size={18} aria-hidden /> : <Moon size={18} aria-hidden />}
-      </button>
-
       <div className={`${GLASS_CARD} flex flex-col gap-0.5 p-1.5`}>
         {DOCK_ITEMS.map(({ id, label, Icon }) => (
           <button
