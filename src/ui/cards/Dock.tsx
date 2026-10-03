@@ -101,14 +101,14 @@ export function HonestyPill({ source }: { source: 'live' | 'cached' | 'fixture' 
       className={`${OVERLAY_Z_TOP} pointer-events-none absolute left-2 right-14 top-2 flex flex-col items-center gap-1`}
     >
       <span
-        className="max-w-full rounded-full bg-white/85 px-2.5 py-1 text-center text-[11px] font-medium leading-tight text-slate-700 ring-1 ring-slate-300 backdrop-blur dark:bg-slate-900/85 dark:text-slate-200 dark:ring-slate-600"
+        className="max-w-full rounded-full bg-white px-2.5 py-1 border border-slate-200 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 dark:ring-slate-600"
         title="Every number in this app is a modeled estimate, not a measurement."
       >
         {HONESTY_PILL}
       </span>
       {source && (
         <span
-          className={`rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium ring-1 ring-slate-300 backdrop-blur dark:bg-slate-900/80 dark:ring-slate-600 ${badge.tone}`}
+          className={`rounded-full bg-white px-2 py-0.5 border border-slate-200 dark:bg-slate-900 dark:border-slate-700 dark:ring-slate-600 ${badge.tone}`}
           title={badge.title}
         >
           {badge.label}

@@ -279,7 +279,7 @@ export function BreakdownDrawer(props: BreakdownDrawerProps) {
         type="button"
         aria-label="Close breakdown"
         onClick={props.onClose}
-        className="absolute inset-0 cursor-default bg-slate-900/20 backdrop-blur-[1px]"
+        className="absolute inset-0 cursor-default bg-slate-900/25"
       />
 
       <aside
@@ -538,7 +538,7 @@ export function BreakdownDrawer(props: BreakdownDrawerProps) {
                   accept=".csv,text/csv"
                   onChange={handleCsvUpload}
                   disabled={validationState === 'running'}
-                  className="rounded-lg border border-slate-300 bg-white/80 px-2 py-1.5 text-xs text-slate-900 ring-1 ring-slate-300 dark:bg-slate-900/80 dark:text-slate-100 dark:ring-slate-600 file:mr-2 file:rounded file:border-0 file:bg-emerald-100 file:text-emerald-800 file:px-2 file:py-1"
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 ring-1 ring-slate-300 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-600 file:mr-2 file:rounded file:border-0 file:bg-emerald-100 file:text-emerald-800 file:px-2 file:py-1"
                 />
               </label>
 

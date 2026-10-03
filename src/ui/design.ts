@@ -1,11 +1,10 @@
 /**
- * Glassmorphism card surface and shared design-system class strings.
- * Keeps the visual language in one place so Phase 7 polish is a single-file change.
+ * Calm, flat surfaces. Deliberately restrained: low blur, hairline borders, no
+ * gradient glow and no heavy drop shadows. The map is the content; the UI stays
+ * quiet so it never competes with it.
  */
-
 export const GLASS_CARD =
-  'bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl ' +
-  'shadow-xl shadow-black/10 ring-1 ring-black/5 dark:ring-white/10';
+  'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700';
 
 /** Overlay chrome sits above Leaflet's panes, which go up to ~z-1000. */
 export const OVERLAY_Z = 'z-[1100]';
@@ -14,11 +13,11 @@ export const OVERLAY_Z_MODAL = 'z-[1400]';
 
 /** Restrained single accent colour. */
 export const ACCENT = {
-  bg: 'bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-500 dark:hover:bg-emerald-400',
+  bg: 'bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500',
   text: 'text-white',
-  ring: 'focus-visible:ring-emerald-500',
-  soft: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
-  border: 'border-emerald-500/40',
+  ring: 'focus-visible:ring-emerald-600',
+  soft: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  border: 'border-emerald-600',
 } as const;
 
 export const NUMBERS = 'tabular-nums';

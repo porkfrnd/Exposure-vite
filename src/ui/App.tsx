@@ -377,7 +377,7 @@ function EmptyState({
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-[1050] flex items-center justify-center px-6">
-      <div className="pointer-events-auto max-w-sm rounded-2xl bg-white/90 p-5 text-center shadow-lg ring-1 ring-slate-300 backdrop-blur dark:bg-slate-900/90 dark:ring-slate-600">
+      <div className="pointer-events-auto max-w-sm rounded-xl bg-white p-5 text-center border border-slate-200 dark:bg-slate-900 dark:border-slate-700">
         {routing ? (
           <>
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -450,7 +450,7 @@ function SegmentPeek({
     : 'Quieter street · lower modeled exposure here';
 
   return (
-    <div className="pointer-events-auto absolute bottom-36 left-1/2 z-[1100] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-white/90 px-3 py-2.5 shadow-lg ring-1 ring-slate-300 dark:bg-slate-900/90 dark:ring-slate-600">
+    <div className="pointer-events-auto absolute bottom-36 left-1/2 z-[1100] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-white/90 px-3 py-2.5 border border-slate-200 dark:bg-slate-900 dark:border-slate-700">
       <div className="flex items-start gap-2">
         <p className="flex-1 text-xs font-medium text-slate-800 dark:text-slate-100">{text}</p>
         <button
@@ -481,7 +481,7 @@ function ComingSoonPanel({ panel, onClose }: { panel: DockId; onClose: () => voi
       <div
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-md rounded-2xl bg-white/95 p-4 shadow-xl ring-1 ring-slate-300 dark:bg-slate-900/95 dark:ring-slate-600"
+        className="relative w-full max-w-md rounded-xl bg-white p-4 border border-slate-200 dark:bg-slate-900 dark:border-slate-700"
       >
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
           {titles[panel] ?? panel}

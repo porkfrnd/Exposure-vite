@@ -84,7 +84,7 @@ export function SchoolModal({
         role="dialog"
         aria-modal="true"
         aria-label="Destination activity window"
-        className="relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white/95 p-4 shadow-xl ring-1 ring-slate-300 dark:bg-slate-900/95 dark:ring-slate-600"
+        className="relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-4 border border-slate-200 dark:bg-slate-900 dark:border-slate-700"
       >
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -149,7 +149,7 @@ export function SchoolModal({
                     className={`flex min-w-[48px] shrink-0 flex-col items-center gap-0.5 rounded-lg px-1.5 py-2 ${
                       isBest
                         ? 'bg-emerald-100 ring-2 ring-emerald-500 dark:bg-emerald-500/20'
-                        : 'bg-white/80 ring-1 ring-slate-300 dark:bg-slate-800 dark:ring-slate-600'
+                        : 'bg-white ring-1 ring-slate-300 dark:bg-slate-800 dark:ring-slate-600'
                     }`}
                   >
                     <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">

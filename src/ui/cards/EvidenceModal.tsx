@@ -187,7 +187,7 @@ export function EvidenceModal(props: EvidenceModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label="Add evidence"
-        className="relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white/95 p-4 shadow-2xl ring-1 ring-slate-300 dark:bg-slate-900/95 dark:ring-slate-600"
+        className="relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-xl bg-white p-4 border border-slate-200 dark:bg-slate-900 dark:border-slate-700"
       >
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add evidence</h2>

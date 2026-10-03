@@ -140,7 +140,7 @@ export function DiaryModal({
         <li
           key={e.id}
           className={`rounded-xl p-2.5 ring-1 ${
-            'bg-white/80 dark:bg-slate-800/80 ring-slate-300'
+            'bg-white dark:bg-slate-800 ring-slate-300'
           }`}
         >
           <div className="flex items-start justify-between gap-2">
@@ -185,7 +185,7 @@ export function DiaryModal({
         role="dialog"
         aria-modal="true"
         aria-label="Diary"
-        className="relative w-full max-w-md overflow-y-auto max-h-[92dvh] rounded-t-2xl bg-white/95 p-4 shadow-2xl ring-1 ring-slate-300 dark:bg-slate-900/95 dark:ring-slate-600"
+        className="relative w-full max-w-md overflow-y-auto max-h-[92dvh] rounded-t-xl bg-white p-4 border border-slate-200 dark:bg-slate-900 dark:border-slate-700"
       >
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">

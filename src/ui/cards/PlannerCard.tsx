@@ -59,8 +59,8 @@ const MODES: Array<{ id: Mode; label: string; Icon: typeof Footprints }> = [
 ];
 
 const INPUT =
-  'w-full rounded-lg bg-white/80 px-2.5 py-2 text-sm text-slate-900 ring-1 ring-slate-300 ' +
-  'placeholder:text-slate-400 dark:bg-slate-800/80 dark:text-slate-100 dark:ring-slate-600 dark:placeholder:text-slate-500';
+  'w-full rounded-lg bg-white px-2.5 py-2 text-sm text-slate-900 ring-1 ring-slate-300 ' +
+  'placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-600 dark:placeholder:text-slate-500';
 
 /** One live place-search box. Results come from Photon; nothing is canned. */
 function PlaceSearch({
@@ -132,7 +132,7 @@ function PlaceSearch({
 
       {value ? (
         <div
-          className={`flex items-center gap-2 rounded-lg bg-white/80 px-2.5 py-2 text-sm ring-1 ring-slate-300 dark:bg-slate-800/80 dark:ring-slate-600 ${busy ? 'opacity-60' : ''}`}
+          className={`flex items-center gap-2 rounded-lg bg-white px-2.5 py-2 text-sm ring-1 ring-slate-300 dark:bg-slate-800 dark:ring-slate-600 ${busy ? 'opacity-60' : ''}`}
         >
           <span className="shrink-0 text-emerald-600 dark:text-emerald-400">{icon}</span>
           <span className="min-w-0 flex-1 truncate text-slate-900 dark:text-slate-100" title={shown}>
@@ -187,7 +187,7 @@ function PlaceSearch({
           )}
 
           {open && results.length > 0 && (
-            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg bg-white/95 py-1 shadow-lg ring-1 ring-slate-300 dark:bg-slate-800/95 dark:ring-slate-600">
+            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg bg-white py-1 border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
               {results.map((p) => (
                 <li key={p.id}>
                   <button
@@ -223,7 +223,7 @@ export function PlannerCard(props: PlannerCardProps) {
 
   return (
     <div
-      className={`${OVERLAY_Z} pointer-events-auto absolute left-3 top-[4.5rem] w-[min(23rem,calc(100vw-1.5rem))] rounded-2xl bg-white/90 p-3 shadow-lg ring-1 ring-slate-300 backdrop-blur dark:bg-slate-900/90 dark:ring-slate-600 sm:left-4`}
+      className={`${OVERLAY_Z} pointer-events-auto absolute left-3 top-[4.5rem] w-[min(23rem,calc(100vw-1.5rem))] rounded-xl bg-white p-3 border border-slate-200 dark:bg-slate-900 dark:border-slate-700 sm:left-4`}
     >
       <button
         type="button"
@@ -363,7 +363,7 @@ export function PlannerCard(props: PlannerCardProps) {
               value={props.baselineRouteId}
               onChange={(e) => props.onBaselineChange(e.target.value)}
               aria-label="Usual route"
-              className={`${FOCUS_RING} rounded-lg bg-white/80 px-2 py-1 text-xs ring-1 ring-slate-300 dark:bg-slate-800/80 dark:ring-slate-600`}
+              className={`${FOCUS_RING} rounded-lg bg-white px-2 py-1 text-xs ring-1 ring-slate-300 dark:bg-slate-800 dark:ring-slate-600`}
             >
               {props.routes.map((r) => (
                 <option key={r.id} value={r.id}>

@@ -92,7 +92,7 @@ export function DemoTourModal({ open, onClose, routes }: DemoTourModalProps) {
         <button
           type="button"
           onClick={startTour}
-          className="relative z-[10] mx-auto my-auto rounded-2xl bg-emerald-600 px-6 py-3 text-base font-semibold text-white shadow-2xl hover:bg-emerald-500"
+          className="relative z-[10] mx-auto my-auto rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
         >
           <Zap size={18} className="inline-block mr-2" aria-hidden />
           Start guided demo tour
@@ -110,7 +110,7 @@ export function DemoTourModal({ open, onClose, routes }: DemoTourModalProps) {
             className={`${OVERLAY_Z_MODAL} fixed inset-0 flex items-center justify-center p-4 pointer-events-none`}
           >
             <div
-              className="relative pointer-events-auto max-w-md w-full rounded-2xl bg-white/95 p-4 shadow-2xl ring-1 ring-slate-300 dark:bg-slate-900/95 dark:ring-slate-600"
+              className="relative pointer-events-auto max-w-md w-full rounded-2xl bg-white p-4 border border-slate-200 dark:bg-slate-900 dark:border-slate-700"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">

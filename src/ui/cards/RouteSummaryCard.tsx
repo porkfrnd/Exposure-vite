@@ -93,7 +93,7 @@ export function RouteSummaryCard(props: SummaryCardProps) {
       </h2>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <span className={`${badge.tone} rounded-full px-2.5 py-1 text-xs font-semibold ring-1`}>
+        <span className={`${badge.tone} rounded-full px-2.5 py-1 text-xs font-semibold border`}>
           {badge.text}
         </span>
         {verdict !== 'none' && Number.isFinite(minutes) && minutes > 0 && (
@@ -132,7 +132,7 @@ export function RouteSummaryCard(props: SummaryCardProps) {
           onClick={props.onAddEvidence}
           title="Add a haze photo"
           aria-label="Add a haze photo"
-          className={`${FOCUS_RING} ${MOTION} ${TOUCH_TARGET} rounded-xl bg-white/80 p-2 text-slate-700 ring-1 ring-slate-300 hover:bg-white dark:bg-slate-800/80 dark:text-slate-200 dark:ring-slate-600`}
+          className={`${FOCUS_RING} ${MOTION} ${TOUCH_TARGET} rounded-xl bg-white p-2 text-slate-700 ring-1 ring-slate-300 hover:bg-white dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600`}
         >
           <Camera size={16} aria-hidden />
         </button>
@@ -141,7 +141,7 @@ export function RouteSummaryCard(props: SummaryCardProps) {
           onClick={props.onOpenEvidence}
           title="Report smoke or dust"
           aria-label="Report smoke or dust"
-          className={`${FOCUS_RING} ${MOTION} ${TOUCH_TARGET} rounded-xl bg-white/80 p-2 text-slate-700 ring-1 ring-slate-300 hover:bg-white dark:bg-slate-800/80 dark:text-slate-200 dark:ring-slate-600`}
+          className={`${FOCUS_RING} ${MOTION} ${TOUCH_TARGET} rounded-xl bg-white p-2 text-slate-700 ring-1 ring-slate-300 hover:bg-white dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600`}
         >
           <MessageSquarePlus size={16} aria-hidden />
         </button>
