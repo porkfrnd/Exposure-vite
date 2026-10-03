@@ -1,0 +1,31 @@
+# dependencies and build output
+node_modules
+dist
+coverage
+.vite
+*.tsbuildinfo
+
+# secrets and local config
+.env
+.env.*
+!.env.example
+*.local
+
+# logs and OS/editor files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
+*.orig
+*.rej
+
+# agent working files (not for GitHub)
+PROGRESS.md
+tmp/
+scratch/
+.agent/
+.swarm/
+.opencode/
