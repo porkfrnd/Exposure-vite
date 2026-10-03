@@ -23,8 +23,31 @@ npm test           # vitest
 npm run build      # production build
 ```
 
-No API keys, no backend, no accounts. Requires network access for live data; degrades
-honestly when offline.
+No API keys, no backend, no accounts. Requires network access for live data.
+
+---
+
+## How to use it
+
+The app is a map first, and the map is never covered by a dialog. It has three states.
+
+**Explore.** The map opens immediately and asks for your location, so you see where you are
+without pressing anything. Type a place in the search bar, or click anywhere on the map.
+
+**Place.** Choosing a place drops a pin, moves the map to it, and opens a card with the modeled
+PM2.5 for that spot. It is a valley-scale number and is labelled as modeled, because the forecast
+cannot see an individual street.
+
+**Route.** Press *Find least polluted route*. The two ends are editable independently, so you can
+search for a start point instead of relying on your device's location. Pick walk, cycle or bus,
+set a departure time, and the app fetches up to three real alternatives and colours every segment
+by modeled exposure — green lowest, red highest, with the recommended route drawn thickest. The
+card shows the real router distance and time next to the exposure verdict.
+
+Swap the ends, clear the trip, or close the planner to get back to where you were. Denied location
+permission is reported plainly and costs you nothing: search still works, and the map never
+invents a starting point for you.
+
 
 ---
 
@@ -59,10 +82,21 @@ Two decisions worth knowing about:
 - **Signals, bus stops, greenery, building density.** No keyless source exists, so these are
   held at neutral assumptions and do not differentiate routes. Stated in the Method panel.
 - **Road multipliers.** Literature-informed assumptions, not Kathmandu measurements.
+- **Evidence without a location.** A haze photo or smoke report needs a real place attached to it.
+  If you have not chosen one, the app says so and keeps the buttons disabled rather than filing
+  your observation against a default coordinate.
 
-When a live call fails, the app shows an **honest error with a retry** — it never falls back to
-fabricated routes or invented evidence pins. There are no seeded demo routes and no simulated
-observation pins in the shipping build.
+When a live call fails, the app degrades honestly instead of quietly inventing something:
+
+- **Routes, places and pins are never fabricated.** A failed routing call shows an error with a
+  retry, and no line is drawn. There are no seeded demo routes and no simulated observation pins
+  in the shipping build.
+- **The forecast may fall back to a synthetic offline series** so that the map stays usable
+  without a network. That fallback is marked `source: 'fixture'` in the contract, and the badge
+  under the search bar reads **"Synthetic offline data"** whenever it is on screen. If no forecast
+  can be produced at all, the badge says **"Forecast unavailable — no exposure estimate shown"**
+  rather than showing a number.
+
 
 ---
 
