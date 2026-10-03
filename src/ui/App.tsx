@@ -366,6 +366,10 @@ export function App() {
         fittedBias={model.fittedBias}
         params={currentEngineParams()}
         openSection={breakdownSection}
+        onApplyFittedBias={(bias) => {
+          model.applyFittedBias(bias);
+          setToast('Fitted bias correction applied to all computations.');
+        }}
       />
 
       {dockPanel && dockPanel !== 'method' && dockPanel !== 'evidence' && (

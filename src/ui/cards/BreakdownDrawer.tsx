@@ -6,11 +6,12 @@
  * The first screen stays clean; everything scientific is exactly one tap deeper.
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, X } from 'lucide-react';
-import { engine } from '../wiring';
-import { GLASS_CARD, FOCUS_RING, MOTION, NUMBERS, OVERLAY_Z_MODAL } from '../design';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Loader2, X } from 'lucide-react';
+import { dataApi, engine } from '../wiring';
+import { FOCUS_RING, GLASS_CARD, MOTION, NUMBERS, OVERLAY_Z_MODAL } from '../design';
 import type {
+  BacktestReport,
   BiasModel,
   Comparison,
   EngineParams,
@@ -34,6 +35,7 @@ export interface BreakdownDrawerProps {
   fittedBias: BiasModel | null;
   params: EngineParams;
   openSection?: string;
+  onApplyFittedBias?: (bias: BiasModel) => void;
 }
 
 type SectionId =
@@ -236,6 +238,34 @@ export function BreakdownDrawer(props: BreakdownDrawerProps) {
   const isOpen = (id: SectionId) => openSections.has(id);
   const params = props.params;
   const nameOf = (id: string) => props.routes.find((r) => r.id === id)?.name ?? id;
+
+  // ── Validation / backtest state ────────────────────────────────────────────
+  type ValidationState = 'idle' | 'running' | 'success' | 'error';
+  const [validationState, setValidationState] = useState<ValidationState>('idle');
+  const [validationError, setValidationError] = useState<string>('');
+  const [backtestReport, setBacktestReport] = useState<BacktestReport | null>(null);
+
+  const handleCsvUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setValidationState('running');
+    setValidationError('');
+    try {
+      const fc = await dataApi.getForecast({ pastDays: 7, forecastDays: 0 });
+      const result = await dataApi.runBacktest(text, fc);
+      if (!result.ok) {
+        setValidationState('error');
+        setValidationError(result.reason);
+        return;
+      }
+      setBacktestReport(result.report);
+      setValidationState('success');
+    } catch (err) {
+      setValidationState('error');
+      setValidationError(err instanceof Error ? err.message : 'Unknown error');
+    }
+  }, []);
 
   const selectedTrip = props.comparison?.trips.find((t) =>
     t.segments.some((s) => s.segmentId === props.selectedSegmentId),
@@ -491,13 +521,128 @@ export function BreakdownDrawer(props: BreakdownDrawerProps) {
           </Accordion>
 
           <Accordion id="validation" label="Validation" open={isOpen('validation')} onToggle={toggle}>
-            <p className="font-medium text-slate-800 dark:text-slate-100">
-              Not yet validated. Requires real station data.
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              No accuracy figure appears anywhere in this app, because none has been measured here. Upload
-              your own station CSV from the dock to run a leave-one-day-out backtest.
-            </p>
+            <div className="space-y-3">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                No accuracy figure appears anywhere in this app, because none has been measured here.
+                Provide a station CSV (time + pm25 columns) to run a leave-one-day-out backtest against the
+                forecast history.
+              </p>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-200">
+                  <FileSpreadsheet size={12} aria-hidden />
+                  Station CSV (time, pm25)
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleCsvUpload}
+                  disabled={validationState === 'running'}
+                  className="rounded-lg border border-slate-300 bg-white/80 px-2 py-1.5 text-xs text-slate-900 ring-1 ring-slate-300 dark:bg-slate-900/80 dark:text-slate-100 dark:ring-slate-600 file:mr-2 file:rounded file:border-0 file:bg-emerald-100 file:text-emerald-800 file:px-2 file:py-1"
+                />
+              </label>
+
+              {validationState === 'running' && (
+                <div className="flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                  <Loader2 size={12} className="animate-spin" aria-hidden />
+                  Running leave-one-day-out backtest…
+                </div>
+              )}
+
+              {validationState === 'error' && (
+                <p className="text-[11px] text-red-700 dark:text-red-300" role="alert">
+                  {validationError}
+                </p>
+              )}
+
+              {validationState === 'success' && backtestReport && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={12} className="text-emerald-600 dark:text-emerald-400" aria-hidden />
+                    <span className="font-medium text-emerald-700 dark:text-emerald-300">Backtest completed</span>
+                  </div>
+
+                  {backtestReport.fittedBias.fittedOn && (
+                    <button
+                      type="button"
+                      onClick={() => props.onApplyFittedBias?.(backtestReport.fittedBias)}
+                      className={`${FOCUS_RING} ${MOTION} rounded-lg bg-emerald-100 px-2.5 py-1.5 font-semibold text-emerald-800 ring-1 ring-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/40`}
+                    >
+                      Apply fitted bias correction (from {backtestReport.fittedBias.fittedOn})
+                    </button>
+                  )}
+
+                  <div className="rounded-lg bg-slate-100/80 p-2.5 dark:bg-slate-800/60">
+                    <table className="w-full text-left">
+                      <thead className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <tr>
+                          <th scope="col" className="py-1 pr-2 font-medium">Metric</th>
+                          <th scope="col" className="py-1 font-medium">Raw API</th>
+                          <th scope="col" className="py-1 font-medium">Bias-corrected</th>
+                        </tr>
+                      </thead>
+                      <tbody className={NUMBERS}>
+                        {[{ label: 'n (hours)', raw: backtestReport.raw.n, bc: backtestReport.biasCorrected.n },
+                          { label: 'Pearson r', raw: backtestReport.raw.r, bc: backtestReport.biasCorrected.r },
+                          { label: 'MAE (µg/m³)', raw: backtestReport.raw.mae, bc: backtestReport.biasCorrected.mae },
+                          { label: 'RMSE (µg/m³)', raw: backtestReport.raw.rmse, bc: backtestReport.biasCorrected.rmse },
+                          { label: 'Bias (µg/m³)', raw: backtestReport.raw.bias, bc: backtestReport.biasCorrected.bias },
+                          { label: 'NMAE', raw: backtestReport.raw.nmae, bc: backtestReport.biasCorrected.nmae },
+                        ].map((m) => (
+                          <tr key={m.label} className="border-t border-slate-200/70 dark:border-slate-700/60">
+                            <th scope="row" className="py-1 pr-2 font-medium">{m.label}</th>
+                            <td>{num(m.raw, 3)}</td>
+                            <td>{num(m.bc, 3)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="rounded-lg bg-slate-100/80 p-2.5 dark:bg-slate-800/60">
+                    <h4 className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
+                      Additional diagnostics
+                    </h4>
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                      <dt className="text-slate-500 dark:text-slate-400">nDays</dt>
+                      <dd className={`${NUMBERS} font-medium`}>{backtestReport.nDays}</dd>
+                      <dt className="text-slate-500 dark:text-slate-400">Effective sample size</dt>
+                      <dd className={`${NUMBERS} font-medium`}>{backtestReport.effectiveSampleSize.toFixed(1)}</dd>
+                      <dt className="text-slate-500 dark:text-slate-400">Scheme</dt>
+                      <dd className={`${NUMBERS} font-medium`}>{backtestReport.scheme}</dd>
+                      <dt className="text-slate-500 dark:text-slate-400">Skill vs persistence</dt>
+                      <dd className={`${NUMBERS} font-medium`}>
+                        {backtestReport.skillVsPersistence !== null ? pct(backtestReport.skillVsPersistence) : '—'}
+                      </dd>
+                      <dt className="text-slate-500 dark:text-slate-400">Fitted bias</dt>
+                      <dd className={`${NUMBERS} font-medium`}>
+                        a={num(backtestReport.fittedBias.a, 3)}, b={num(backtestReport.fittedBias.b, 3)}, σ={num(backtestReport.fittedBias.sigmaBgLog, 3)}
+                      </dd>
+                      {backtestReport.conformal && (
+                        <>
+                          <dt className="text-slate-500 dark:text-slate-400">Conformal α</dt>
+                          <dd className={`${NUMBERS} font-medium`}>{backtestReport.conformal.alpha}</dd>
+                          <dt className="text-slate-500 dark:text-slate-400">Empirical coverage</dt>
+                          <dd className={`${NUMBERS} font-medium`}>{pct(backtestReport.conformal.empiricalCoverage)}</dd>
+                          <dt className="text-slate-500 dark:text-slate-400">qLog</dt>
+                          <dd className={`${NUMBERS} font-medium`}>{num(backtestReport.conformal.qLog, 3)}</dd>
+                        </>
+                      )}
+                    </dl>
+                  </div>
+
+                  {backtestReport.warnings.length > 0 && (
+                    <ul className="space-y-1">
+                      {backtestReport.warnings.map((w, i) => (
+                        <li key={i} className="text-[11px] text-amber-700 dark:text-amber-300">
+                          {w}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
           </Accordion>
 
           <Accordion id="sensitivity" label="Sensitivity check" open={isOpen('sensitivity')} onToggle={toggle}>
