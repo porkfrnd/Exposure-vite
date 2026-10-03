@@ -1,52 +1,57 @@
 /**
- * EXPOSURE VITE — App shell.
+ * EXPOSURE VITE — App shell (Google-Maps paradigm).
  *
- * The map is the page (fixed, full viewport, no scroll). Everything else is a
- * floating overlay card above it.
+ * The map is a full-bleed canvas that is ALWAYS mounted and ALWAYS interactive.
+ * All UI floats above it in three states:
  *
- * ALL DATA IS REAL: live Open-Meteo air quality, live OSM routing, live OSM road
- * classes, live place search. There are no demo routes and no simulated pins.
- * FIRST-SCREEN RULE: planner + summary + map only; all model internals live
- * behind "View Scientific Breakdown".
+ *   EXPLORE        search bar + map controls, live-location dot, free pan/zoom
+ *   PLACE_DETAILS  place detail card with modeled PM2.5 and a route CTA
+ *   ROUTING        route planner (editable From/To, swap, mode, departure) + results
+ *
+ * There is no blocking modal anywhere. The map never goes blank.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { MapView } from './map/MapView';
-import type { RouteLabel, SegmentStyle } from './map/MapView';
-import { exposureColor, extentOf } from './map/ramp';
-import { PlannerCard } from './cards/PlannerCard';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MapCanvas } from './components/MapCanvas';
+import type { MapHandle, SegmentStyle, RouteLabel } from './components/MapCanvas';
+import {
+  ExploreHint,
+  MapControls,
+  PlaceDetailCard,
+  RoutePlannerCard,
+  TopSearch,
+  usePlaceSearch,
+} from './components/FloatingUI';
 import { RouteSummaryCard } from './cards/RouteSummaryCard';
 import { BreakdownDrawer, currentEngineParams } from './cards/BreakdownDrawer';
-import { FeatureDock, HonestyPill, MapLegend } from './cards/Dock';
-import type { DockId } from './cards/Dock';
+import { FeatureDock } from './cards/Dock';
 import { EvidenceModal } from './cards/EvidenceModal';
-import { DiaryModal } from './cards/DiaryModal';
-import { SchoolModal } from './cards/SchoolModal';
-import { DemoTourModal } from './cards/DemoTourModal';
-import { useExposureModel } from './state/useExposureModel';
+import { useAppStore, pm25Near, pm25Band } from './state/appStore';
 import { useTheme } from './theme/useTheme';
-import { engine, formatLocalTime, VALLEY } from './wiring';
-import type { LatLon, SweepPoint } from '@/contracts';
+import { formatLocalTime, VALLEY } from './wiring';
+import { exposureColor, extentOf } from './map/ramp';
+import type { LatLon } from '@/contracts';
 
 export function App() {
-  const model = useExposureModel();
+  const store = useAppStore();
   const { theme, toggle } = useTheme();
 
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [breakdownSection, setBreakdownSection] = useState<string | undefined>(undefined);
-  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [diaryOpen, setDiaryOpen] = useState(false);
-  const [schoolOpen, setSchoolOpen] = useState(false);
-  const [demoOpen, setDemoOpen] = useState(false);
-  const [dockPanel, setDockPanel] = useState<DockId | null>(null);
-  const [tileFailed, setTileFailed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const { comparison, routes, observations, forecast, departISO, nowMs, planned } = model;
+  const [query, setQuery] = useState('');
+  const { results, searching } = usePlaceSearch(query);
 
-  // ── Segment styling: colour by RELATIVE modeled exposure, min→max on screen ──
+  const mapHandleRef = useRef<MapHandle | null>(null);
+  const setMapHandle = useCallback((h: MapHandle | null) => {
+    mapHandleRef.current = h;
+  }, []);
+
+  const { comparison, routes, planned, appState } = store;
+
+  // ── Segment styling by RELATIVE modeled exposure ──────────────────────────
   const styles = useMemo<Record<string, SegmentStyle>>(() => {
     const out: Record<string, SegmentStyle> = {};
     if (!comparison) return out;
@@ -54,36 +59,29 @@ export function App() {
     const exposureById = new Map<string, number>();
     for (const trip of comparison.trips) {
       for (const seg of trip.segments) {
-        if (!Number.isFinite(seg.concentration)) continue;
-        if (!exposureById.has(seg.segmentId)) exposureById.set(seg.segmentId, seg.concentration);
+        if (Number.isFinite(seg.concentration) && !exposureById.has(seg.segmentId)) {
+          exposureById.set(seg.segmentId, seg.concentration);
+        }
       }
     }
-
     const { min, max } = extentOf([...exposureById.values()]);
 
     for (const trip of comparison.trips) {
       for (const seg of trip.segments) {
-        const route = routes.find((r) => r.id === trip.routeId);
-        if (!route) continue;
         const recommended = comparison.bestRouteId === trip.routeId;
-        const dimmed = !recommended && trip.routeId !== comparison.baselineRouteId;
-        const exposure = exposureById.get(seg.segmentId) ?? 0;
-        const share = 1 / Math.max(1, trip.segments.length);
         out[seg.segmentId] = {
           routeId: trip.routeId,
-          routeName: route.name,
-          color: exposureColor(exposure, min, max),
-          minutesLabel: `${Math.round(trip.durationMin * share)} min`,
-          confidence: seg.confidence,
+          color: exposureColor(exposureById.get(seg.segmentId) ?? 0, min, max),
           recommended,
-          dimmed,
+          dimmed: !recommended && trip.routeId !== comparison.baselineRouteId,
+          confidence: seg.confidence,
         };
       }
     }
     return out;
-  }, [comparison, routes]);
+  }, [comparison]);
 
-  // ── Route labels: name + real router duration ─────────────────────────────
+  // ── Route chips: name + REAL router duration ──────────────────────────────
   const routeLabels = useMemo<RouteLabel[]>(() => {
     if (!comparison) return [];
     const out: RouteLabel[] = [];
@@ -91,19 +89,16 @@ export function App() {
 
     comparison.trips.forEach((trip, index) => {
       const route = routes.find((r) => r.id === trip.routeId);
-      const plannedRoute = planned.find((p) => p.route.id === trip.routeId);
+      const meta = planned.find((p) => p.route.id === trip.routeId);
       if (!route || route.segments.length === 0) return;
 
-      // Real router duration when we have it; the engine estimate otherwise.
-      const minutes = plannedRoute ? plannedRoute.durationS / 60 : trip.durationMin;
-
-      const fraction = 0.38 + (index / total) * 0.24;
+      const minutes = meta ? meta.durationS / 60 : trip.durationMin;
       const segIdx = Math.min(
         route.segments.length - 1,
-        Math.max(0, Math.round(fraction * (route.segments.length - 1))),
+        Math.round((0.38 + (index / total) * 0.24) * (route.segments.length - 1)),
       );
       const seg = route.segments[segIdx];
-      const coordIdx = Math.min(seg.coords.length - 1, Math.max(0, Math.floor(seg.coords.length / 2)));
+      const coordIdx = Math.min(seg.coords.length - 1, Math.floor(seg.coords.length / 2));
       const coord = seg.coords[coordIdx];
       if (!coord) return;
 
@@ -117,56 +112,28 @@ export function App() {
         name: route.name,
         minutes,
         lat: coord.lat + (nudgeM * Math.cos(bearing)) / 111_320,
-        lon:
-          coord.lon +
-          (nudgeM * Math.sin(bearing)) / (111_320 * Math.cos((coord.lat * Math.PI) / 180)),
+        lon: coord.lon + (nudgeM * Math.sin(bearing)) / (111_320 * Math.cos((coord.lat * Math.PI) / 180)),
         recommended: comparison.bestRouteId === trip.routeId,
-        dimmed:
-          comparison.bestRouteId !== trip.routeId && trip.routeId !== comparison.baselineRouteId,
+        dimmed: comparison.bestRouteId !== trip.routeId && trip.routeId !== comparison.baselineRouteId,
       });
     });
     return out;
   }, [comparison, routes, planned]);
 
-  const departureLabel = useMemo(() => formatLocalTime(departISO), [departISO]);
+  // ── Fly to a place when it gets selected ─────────────────────────────────
+  const flyToSelected = useRef<LatLon | null>(null);
+  useEffect(() => {
+    const p = store.selectedPlace;
+    if (!p) return;
+    if (flyToSelected.current?.lat === p.lat && flyToSelected.current?.lon === p.lon) return;
+    flyToSelected.current = { lat: p.lat, lon: p.lon };
+    mapHandleRef.current?.flyTo(p.lat, p.lon, 16);
+  }, [store.selectedPlace]);
 
-  const departureShort = useMemo(() => {
-    if (model.offsetMin === 0) return 'Leave now';
-    const h = Math.floor(model.offsetMin / 60);
-    const m = model.offsetMin % 60;
-    if (h > 0 && m > 0) return `Leave in ${h} h ${m} min`;
-    if (h > 0) return `Leave in ${h} h`;
-    return `Leave in ${m} min`;
-  }, [model.offsetMin]);
-
-  const headlineVerdict = useMemo((): 'recommend' | 'slight' | 'none' => {
-    if (!comparison || !comparison.bestRouteId) return 'none';
-    const best = comparison.versus.find((v) => v.routeId === comparison.bestRouteId);
-    if (!best || best.verdict === 'none') {
-      return comparison.versus.find((v) => v.verdict === 'slight') ? 'slight' : 'none';
-    }
-    return best.verdict;
-  }, [comparison]);
-
-  const bestTimeHint = useMemo((): string | null => {
-    const sweep: SweepPoint[] = model.sweep;
-    if (sweep.length < 2 || headlineVerdict !== 'recommend') return null;
-    let best: { offsetMin: number; routeId: string; pct: number } | null = null;
-    for (const p of sweep) {
-      if (p.offsetMin <= model.offsetMin) continue;
-      for (const v of p.comparison.versus) {
-        if (v.verdict !== 'recommend') continue;
-        if (!best || v.medianDeltaE > best.pct) {
-          best = { offsetMin: p.offsetMin, routeId: v.routeId, pct: v.medianDeltaE };
-        }
-      }
-    }
-    if (!best) return null;
-    const name = routes.find((r) => r.id === best!.routeId)?.name ?? 'that route';
-    const mins = best.offsetMin - model.offsetMin;
-    if (mins <= 0) return null;
-    return `Leaving ${mins} min later looks better on ${name} in this model.`;
-  }, [model.sweep, model.offsetMin, routes, headlineVerdict]);
+  // ── Fit routes when they arrive, then clear the selected-place pin ────────
+  useEffect(() => {
+    if (routes.length > 0) flyToSelected.current = store.selectedPlace;
+  }, [routes.length, store.selectedPlace]);
 
   useEffect(() => {
     if (!toast) return;
@@ -174,142 +141,174 @@ export function App() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  const openBreakdown = useCallback((section?: string) => {
-    setBreakdownSection(section);
-    setBreakdownOpen(true);
-  }, []);
-
-  const handleDockOpen = useCallback(
-    (id: DockId) => {
-      if (id === 'method') return openBreakdown('how');
-      if (id === 'evidence') return setEvidenceOpen(true);
-      if (id === 'diary') return setDiaryOpen(true);
-      if (id === 'school') return setSchoolOpen(true);
-      if (id === 'demo') return setDemoOpen(true);
-      setDockPanel(id);
+  const handleMapClick = useCallback(
+    (lat: number, lon: number) => {
+      if (appState === 'ROUTING') return;
+      void store.selectCoordinates(lat, lon);
     },
-    [openBreakdown],
+    [appState, store],
   );
 
-  // ── Empty state: no trip planned yet, or an honest error ──────────────────
-  const hasTrip = model.origin !== null && model.destination !== null;
-  const showEmpty = !hasTrip || routes.length === 0;
+  const recenter = useCallback(async () => {
+    const pos = await store.locate();
+    if (pos) mapHandleRef.current?.flyTo(pos.lat, pos.lon, 15);
+  }, [store]);
+
+  const showSearch = appState === 'EXPLORE';
+  const showPlaceCard = appState === 'PLACE_DETAILS' && store.selectedPlace !== null;
+  const showRouter = appState === 'ROUTING';
+  const hasRoutes = routes.length > 0;
 
   return (
     <div className="relative h-dvh w-screen overflow-hidden">
-      {routes.length > 0 && (
-        <MapView
-          routes={routes}
-          styles={styles}
-          routeLabels={routeLabels}
-          selectedSegmentId={selectedSegmentId}
-          onSelectSegment={setSelectedSegmentId}
-          origin={model.origin ? { lat: model.origin.lat, lon: model.origin.lon } : null}
-          destination={
-            model.destination ? { lat: model.destination.lat, lon: model.destination.lon } : null
-          }
-          school={null}
-          observations={observations}
-          showSimulated={false}
-          theme={theme}
-          onTileFailure={() => setTileFailed(true)}
+      {/* Map is unconditional: it must never unmount. */}
+      <MapCanvas
+        theme={theme}
+        routes={routes}
+        styles={styles}
+        routeLabels={routeLabels}
+        selectedPlace={showPlaceCard || showRouter ? store.selectedPlace : null}
+        liveLocation={store.liveLocation}
+        origin={showRouter ? (store.origin ?? null) : null}
+        destination={showRouter ? (store.destination ?? null) : null}
+        observations={store.observations}
+        onMapClick={handleMapClick}
+        onTileFailure={() => setToast('Base map tiles failed to load.')}
+        handleRef={setMapHandle}
+      />
+
+      {/* Honesty banner — always visible, never blocking. */}
+      <div className="pointer-events-none absolute left-1/2 top-[4.25rem] z-[1150] -translate-x-1/2 max-sm:top-[4.5rem]">
+        <span className="rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[11px] font-medium text-slate-700 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200">
+          Modeled estimate · not a measurement · not medical advice
+        </span>
+      </div>
+
+      {/* ── State A / C: search + planner (top-left) ─────────────────────── */}
+      {showSearch && (
+        <TopSearch
+          value={query}
+          onQueryChange={setQuery}
+          results={results}
+          searching={searching}
+          onPick={(p) => {
+            setQuery('');
+            store.selectPlace(p);
+          }}
         />
       )}
 
-      <HonestyPill source={forecast?.source ?? null} />
+      {showRouter && (
+        <RoutePlannerCard
+          state={appState}
+          origin={store.origin}
+          destination={store.destination}
+          mode={store.mode}
+          onModeChange={store.setMode}
+          onOriginPick={store.setOrigin}
+          onDestinationPick={store.setDestination}
+          onClearOrigin={() => store.setOrigin(null)}
+          onClearDestination={() => store.setDestination(null)}
+          onSwap={store.swapEnds}
+          onClose={store.exitRouting}
+          routing={store.routing}
+          routeError={store.routeError}
+          onRetry={store.retryRouting}
+          forecast={store.forecast}
+          nowMs={Date.now()}
+          offsetMin={store.offsetMin}
+          onOffsetChange={store.setOffsetMin}
+        />
+      )}
 
-      <PlannerCard
-        routes={routes}
-        origin={model.origin}
-        destination={model.destination}
-        onOriginChange={model.setOrigin}
-        onDestinationChange={model.setDestination}
-        onUseMyLocation={model.useMyLocation}
-        locating={model.phase === 'locating'}
-        onSwap={model.swap}
-        mode={model.mode}
-        onModeChange={model.setMode}
-        offsetMin={model.offsetMin}
-        onOffsetChange={model.setOffsetMin}
-        baselineRouteId={model.baselineRouteId}
-        onBaselineChange={model.setBaselineRouteId}
-        departureLabel={departureLabel}
-        departureShort={departureShort}
-        routing={model.phase === 'routing'}
-        error={model.error}
-        onRetry={model.retry}
+      {/* ── State B: place detail (bottom-left) ─────────────────────────── */}
+      {showPlaceCard && store.selectedPlace && (
+        <PlaceDetailCard
+          place={store.selectedPlace}
+          forecast={store.forecast}
+          nowMs={Date.now()}
+          onFindRoute={store.startRouting}
+          onClose={() => store.setAppState('EXPLORE')}
+        />
+      )}
+
+      {/* Route results summary (bottom-left, only when routes exist). */}
+      {showRouter && hasRoutes && (
+        <RouteSummaryCard
+          comparison={comparison}
+          routes={routes}
+          bestTimeHint={null}
+          onOpenBreakdown={() => {
+            setBreakdownSection(undefined);
+            setBreakdownOpen(true);
+          }}
+          onAddEvidence={() => setEvidenceOpen(true)}
+          onOpenEvidence={() => setEvidenceOpen(true)}
+          collapsed={false}
+          onToggleCollapsed={() => {}}
+        />
+      )}
+
+      <ExploreHint visible={appState === 'EXPLORE' && store.liveLocation === null && !store.locating} />
+
+      {store.locError && appState === 'EXPLORE' && (
+        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-[1200] -translate-x-1/2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-400/40 dark:bg-amber-900/90 dark:text-amber-200">
+          {store.locError}
+        </div>
+      )}
+
+      {/* Bottom-right controls. */}
+      <MapControls
+        hasLive={store.liveLocation !== null}
+        locating={store.locating}
+        onLocate={() => void recenter()}
+        theme={theme}
+        onToggleTheme={toggle}
+        onReset={showRouter ? store.clearAll : undefined}
       />
 
       <FeatureDock
         theme={theme}
         onToggleTheme={toggle}
-        onOpen={handleDockOpen}
+        onOpen={(id) => {
+          if (id === 'method') {
+            setBreakdownSection('how');
+            setBreakdownOpen(true);
+          } else if (id === 'evidence') {
+            setEvidenceOpen(true);
+          } else {
+            setToast('That panel is not available in this build.');
+          }
+        }}
         onAddEvidence={() => setEvidenceOpen(true)}
       />
-
-      {showEmpty ? (
-        <EmptyState
-          hasTrip={hasTrip}
-          routing={model.phase === 'routing'}
-          error={model.error}
-          onRetry={model.retry}
-          onUseMyLocation={model.useMyLocation}
-        />
-      ) : (
-        <>
-          <RouteSummaryCard
-            comparison={comparison}
-            routes={routes}
-            bestTimeHint={bestTimeHint}
-            onOpenBreakdown={() => openBreakdown()}
-            onAddEvidence={() => setEvidenceOpen(true)}
-            onOpenEvidence={() => setEvidenceOpen(true)}
-            collapsed={summaryCollapsed}
-            onToggleCollapsed={() => setSummaryCollapsed((v) => !v)}
-          />
-          <MapLegend />
-        </>
-      )}
-
-      {tileFailed && (
-        <p className="pointer-events-none absolute bottom-40 left-1/2 z-[1100] -translate-x-1/2 rounded-full bg-amber-100 px-3 py-1 text-[11px] font-medium text-amber-900 ring-1 ring-amber-400 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-400/40">
-          Base map could not load — routes are still shown.
-        </p>
-      )}
 
       {toast && (
         <div
           role="status"
-          className="pointer-events-auto absolute left-1/2 top-24 z-[1400] -translate-x-1/2 rounded-lg bg-slate-900/90 px-3 py-2 text-xs font-medium text-white dark:bg-slate-100/95 dark:text-slate-900"
+          className="pointer-events-auto absolute left-1/2 top-24 z-[1400] -translate-x-1/2 rounded-xl bg-slate-800 px-3 py-2 text-xs font-medium text-white dark:bg-slate-200 dark:text-slate-900"
         >
           {toast}
         </div>
       )}
 
-      {selectedSegmentId && routes.length > 0 && (
-        <SegmentPeek
-          segmentId={selectedSegmentId}
-          segments={model.segments}
-          onDetails={() => openBreakdown('segments')}
-          onClose={() => setSelectedSegmentId(null)}
-        />
-      )}
-
       <EvidenceModal
         open={evidenceOpen}
         onClose={() => setEvidenceOpen(false)}
-        observations={observations}
+        observations={store.observations}
         showSimulated={false}
-        defaultLocation={(model.origin ?? model.destination) ?? VALLEY}
-        currentISO={new Date(nowMs).toISOString().replace(/\.\d{3}Z$/, 'Z')}
-        forecast={forecast}
-        segments={model.segments}
+        defaultLocation={
+          (store.destination ?? store.selectedPlace ?? store.origin) ?? VALLEY
+        }
+        currentISO={new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}
+        forecast={store.forecast}
+        segments={store.segments}
         onAdd={(obs) => {
-          model.addObservation(obs);
+          store.addObservation(obs);
           setEvidenceOpen(false);
           setToast('Your evidence was added. Nearby segments were updated.');
         }}
-        onError={(message) => setToast(message)}
+        onError={(m) => setToast(m)}
       />
 
       <BreakdownDrawer
@@ -317,186 +316,19 @@ export function App() {
         onClose={() => setBreakdownOpen(false)}
         comparison={comparison}
         routes={routes}
-        segments={model.segments}
-        sweep={model.sweep}
-        selectedSegmentId={selectedSegmentId}
-        onSelectSegment={setSelectedSegmentId}
-        sensitivity={model.sensitivityReport}
-        onRunSensitivity={model.runSensitivity}
-        fittedBias={model.fittedBias}
+        segments={store.segments}
+        sweep={store.sweep}
+        selectedSegmentId={null}
+        onSelectSegment={() => {}}
+        sensitivity={null}
+        onRunSensitivity={() => {}}
+        fittedBias={null}
         params={currentEngineParams()}
         openSection={breakdownSection}
-        onApplyFittedBias={(bias) => {
-          model.applyFittedBias(bias);
-          setToast('Fitted bias correction applied to all computations.');
-        }}
       />
-
-      <DiaryModal
-        open={diaryOpen}
-        onClose={() => setDiaryOpen(false)}
-        routes={routes}
-        mode={model.mode}
-        baselineRouteId={model.baselineRouteId}
-        comparison={comparison}
-        forecast={forecast}
-        departISO={departISO}
-        onToast={setToast}
-      />
-
-      <SchoolModal
-        open={schoolOpen}
-        onClose={() => setSchoolOpen(false)}
-        forecast={forecast}
-        segments={model.segments}
-        destination={model.destination}
-      />
-
-      <DemoTourModal open={demoOpen} onClose={() => setDemoOpen(false)} routes={routes} />
-
-      {dockPanel && dockPanel !== 'method' && dockPanel !== 'evidence' && (
-        <ComingSoonPanel panel={dockPanel} onClose={() => setDockPanel(null)} />
-      )}
     </div>
   );
 }
 
-/** Honest first-run state. Never fabricates a route to fill the space. */
-function EmptyState({
-  hasTrip,
-  routing,
-  error,
-  onRetry,
-  onUseMyLocation,
-}: {
-  hasTrip: boolean;
-  routing: boolean;
-  error: string | null;
-  onRetry: () => void;
-  onUseMyLocation: () => void;
-}) {
-  return (
-    <div className="pointer-events-none absolute inset-0 z-[1050] flex items-center justify-center px-6">
-      <div className="pointer-events-auto max-w-sm rounded-xl bg-white p-5 text-center border border-slate-200 dark:bg-slate-900 dark:border-slate-700">
-        {routing ? (
-          <>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Finding real routes…
-            </h2>
-            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">
-              Live OpenStreetMap routing for your actual start and destination.
-            </p>
-          </>
-        ) : error ? (
-          <>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Could not plan that trip
-            </h2>
-            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">{error}</p>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
-            >
-              Try again
-            </button>
-          </>
-        ) : (
-          <>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Plan a real commute
-            </h2>
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-              Set your start point and destination. Routes come from live OpenStreetMap data, and
-              the app compares modeled relative exposure between them.
-            </p>
-            <button
-              type="button"
-              onClick={onUseMyLocation}
-              className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
-            >
-              Use my live location
-            </button>
-            {!hasTrip && (
-              <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                …or search for both places in the panel above.
-              </p>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Friendly one-liner when a segment is tapped on the map. */
-function SegmentPeek({
-  segmentId,
-  segments,
-  onDetails,
-  onClose,
-}: {
-  segmentId: string;
-  segments: Array<{ id: string; roadClass: string }>;
-  onDetails: () => void;
-  onClose: () => void;
-}) {
-  const seg = segments.find((s) => s.id === segmentId);
-  if (!seg) return null;
-  const mainRoad =
-    seg.roadClass === 'trunk' || seg.roadClass === 'primary' || seg.roadClass === 'secondary';
-  const text = mainRoad
-    ? 'Busy road · higher modeled exposure on this stretch'
-    : 'Quieter street · lower modeled exposure here';
-
-  return (
-    <div className="pointer-events-auto absolute bottom-36 left-1/2 z-[1100] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-white/90 px-3 py-2.5 border border-slate-200 dark:bg-slate-900 dark:border-slate-700">
-      <div className="flex items-start gap-2">
-        <p className="flex-1 text-xs font-medium text-slate-800 dark:text-slate-100">{text}</p>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Dismiss"
-          className="rounded p-0.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-100"
-        >
-          ✕
-        </button>
-      </div>
-      <button
-        type="button"
-        onClick={onDetails}
-        className="mt-1 text-[11px] font-semibold text-emerald-700 underline underline-offset-2 dark:text-emerald-400"
-      >
-        Details
-      </button>
-    </div>
-  );
-}
-
-function ComingSoonPanel({ panel, onClose }: { panel: DockId; onClose: () => void }) {
-  const titles: Record<string, string> = { diary: 'Diary', school: 'School', demo: 'Demo tour' };
-  return (
-    <div className="fixed inset-0 z-[1400] flex items-end justify-center sm:items-center">
-      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/20" />
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="relative w-full max-w-md rounded-xl bg-white p-4 border border-slate-200 dark:bg-slate-900 dark:border-slate-700"
-      >
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          {titles[panel] ?? panel}
-        </h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-2 rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-100"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export { engine };
+export { pm25Near, pm25Band, formatLocalTime };
 export type { LatLon };
