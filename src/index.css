@@ -11,4 +11,35 @@
     margin: 0;
     overflow: hidden; /* the map is the page; no page scroll */
   }
+  /* Leaflet renders its panes with z-index values up to ~1000, so overlays use
+     z-[1100]+ and always sit above the map. */
+  .leaflet-container {
+    @apply bg-slate-200 dark:bg-slate-950;
+    font-family: inherit;
+  }
+  /* Dark-mode fallback for plain OpenStreetMap tiles, which ship light. */
+  .dark-tiles {
+    filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9);
+  }
+  /* Range inputs need an explicit accent that works in both themes. */
+  input[type='range'] {
+    @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-300 dark:bg-slate-700;
+  }
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    @apply h-4 w-4 rounded-full bg-emerald-600 shadow;
+  }
+  input[type='range']::-moz-range-thumb {
+    @apply h-4 w-4 rounded-full border-0 bg-emerald-600 shadow;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
