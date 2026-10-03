@@ -4,30 +4,16 @@
  * ARCHITECTURE RULE: this file is the ONLY module in src/ui/** that imports
  * "@/engine" or "@/data". Every other UI module imports "./wiring" and
  * "@/contracts". That is what keeps the UI swappable and the engine testable.
+ *
+ * `realApi` carries the live, keyless services (Photon place search, FOSSGIS OSRM
+ * routing, Valhalla road classes, Open-Meteo). There are no demo routes and no
+ * simulated evidence in this build.
  */
 
 import { engine } from '@/engine';
-import { dataApi } from '@/data';
-import { formatLocalTime as formatLocalTimeImpl } from '@/data/format';
+import { dataApi, realApi, VALLEY } from '@/data';
+import { formatLocalTime } from '@/data/format';
+import type { Place, Planned, RealRouteResult } from '@/data';
 
-export { engine, dataApi };
-
-/**
- * "4:15 PM NPT" formatting. Re-exported through the seam so UI code never reaches
- * into @/data directly.
- */
-export const formatLocalTime = formatLocalTimeImpl;
-
-/**
- * Development-time warning surfaced by the UI when the shipped demo route fixture
- * violates a contract invariant. Normally an empty array.
- */
-export function demoRouteIssues(): string[] {
-  try {
-    // Lazily required so a broken fixture can never crash module evaluation.
-    const mod = dataApi as unknown as { demoRouteIssues?: () => string[] };
-    return typeof mod.demoRouteIssues === 'function' ? mod.demoRouteIssues() : [];
-  } catch {
-    return [];
-  }
-}
+export { engine, dataApi, realApi, formatLocalTime, VALLEY };
+export type { Place, Planned, RealRouteResult };

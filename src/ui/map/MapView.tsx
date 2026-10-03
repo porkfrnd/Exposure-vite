@@ -33,6 +33,9 @@ const ATTRIBUTION = '&copy; OpenStreetMap contributors';
 /** Show the clickable strip in the first 60 s so a broken basemap is noticed. */
 const TILE_ERROR_BUDGET = 6;
 
+/** Kathmandu Valley centre, used only before any route is plotted. */
+const DEFAULT_VIEW: [number, number] = [27.7172, 85.324];
+
 export interface SegmentStyle {
   routeId: string;
   routeName: string;
@@ -60,9 +63,10 @@ export interface MapViewProps {
   routeLabels: RouteLabel[];
   selectedSegmentId: string | null;
   onSelectSegment: (segmentId: string | null) => void;
-  origin: LatLon;
-  destination: LatLon;
+  origin: LatLon | null;
+  destination: LatLon | null;
   school: LatLon | null;
+  /** Fallback centre when no route is plotted yet. */
   observations: Observation[];
   showSimulated: boolean;
   theme: Theme;
@@ -95,7 +99,7 @@ export function MapView(props: MapViewProps) {
       zoomControl: false,
       attributionControl: true,
       preferCanvas: true,
-    }).setView([props.origin.lat, props.origin.lon], 14);
+    }).setView(DEFAULT_VIEW, 14);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -356,26 +360,30 @@ export function MapView(props: MapViewProps) {
     const dark = props.theme === 'dark';
 
     // Origin
-    L.circleMarker([props.origin.lat, props.origin.lon], {
-      radius: 7,
-      color: '#0f172a',
-      weight: 3,
-      fillColor: '#0ea5e9',
-      fillOpacity: 1,
-    })
-      .bindTooltip('Start', { direction: 'top' })
-      .addTo(layer);
+    if (props.origin) {
+      L.circleMarker([props.origin.lat, props.origin.lon], {
+        radius: 7,
+        color: '#0f172a',
+        weight: 3,
+        fillColor: '#0ea5e9',
+        fillOpacity: 1,
+      })
+        .bindTooltip('Start', { direction: 'top' })
+        .addTo(layer);
+    }
 
     // Destination
-    L.circleMarker([props.destination.lat, props.destination.lon], {
-      radius: 7,
-      color: '#0f172a',
-      weight: 3,
-      fillColor: '#f97316',
-      fillOpacity: 1,
-    })
-      .bindTooltip('Destination', { direction: 'top' })
-      .addTo(layer);
+    if (props.destination) {
+      L.circleMarker([props.destination.lat, props.destination.lon], {
+        radius: 7,
+        color: '#0f172a',
+        weight: 3,
+        fillColor: '#f97316',
+        fillOpacity: 1,
+      })
+        .bindTooltip('Destination', { direction: 'top' })
+        .addTo(layer);
+    }
 
     if (props.school) {
       L.marker([props.school.lat, props.school.lon], {
@@ -407,9 +415,7 @@ export function MapView(props: MapViewProps) {
 
       L.marker([obs.lat, obs.lon], { icon, interactive: true, keyboard: false })
         .bindTooltip(
-          obs.isSimulated
-            ? `SIM ${isPhoto ? 'photo' : obs.report} (simulated demo data)`
-            : `${isPhoto ? 'Your haze photo' : `Your report: ${obs.report}`}`,
+          isPhoto ? 'Your haze photo' : `Your report: ${obs.report}`,
           { direction: 'top' },
         )
         .addTo(layer);

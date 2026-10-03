@@ -2,12 +2,12 @@
  * EXPOSURE VITE — App shell.
  *
  * The map is the page (fixed, full viewport, no scroll). Everything else is a
- * floating overlay card above it, so the map stays draggable and zoomable
- * everywhere except on the cards themselves.
+ * floating overlay card above it.
  *
- * FIRST-SCREEN RULE: the planner, the summary and the map are the only things a
- * first-time user sees, and they contain no technical jargon. All model internals
- * live behind "View Scientific Breakdown".
+ * ALL DATA IS REAL: live Open-Meteo air quality, live OSM routing, live OSM road
+ * classes, live place search. There are no demo routes and no simulated pins.
+ * FIRST-SCREEN RULE: planner + summary + map only; all model internals live
+ * behind "View Scientific Breakdown".
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -17,7 +17,7 @@ import { exposureColor, extentOf } from './map/ramp';
 import { PlannerCard } from './cards/PlannerCard';
 import { RouteSummaryCard } from './cards/RouteSummaryCard';
 import { BreakdownDrawer, currentEngineParams } from './cards/BreakdownDrawer';
-import { FeatureDock, HonestyPill, MapLegend, SimulatedToggle } from './cards/Dock';
+import { FeatureDock, HonestyPill, MapLegend } from './cards/Dock';
 import type { DockId } from './cards/Dock';
 import { EvidenceModal } from './cards/EvidenceModal';
 import { DiaryModal } from './cards/DiaryModal';
@@ -25,8 +25,8 @@ import { SchoolModal } from './cards/SchoolModal';
 import { DemoTourModal } from './cards/DemoTourModal';
 import { useExposureModel } from './state/useExposureModel';
 import { useTheme } from './theme/useTheme';
-import { engine, formatLocalTime } from './wiring';
-import type { SweepPoint } from '@/contracts';
+import { engine, formatLocalTime, VALLEY } from './wiring';
+import type { LatLon, SweepPoint } from '@/contracts';
 
 export function App() {
   const model = useExposureModel();
@@ -41,44 +41,21 @@ export function App() {
   const [schoolOpen, setSchoolOpen] = useState(false);
   const [demoOpen, setDemoOpen] = useState(false);
   const [dockPanel, setDockPanel] = useState<DockId | null>(null);
-  const [showSimulated, setShowSimulated] = useState(true);
   const [tileFailed, setTileFailed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const { comparison, routes, observations, forecast, departISO, nowMs } = model;
-
-  /**
-   * The verdict driving the headline. Mirrors the engine's own fallback: if nothing
-   * reached 'recommend' but something reached 'slight', the slight lean is shown.
-   */
-  const headlineVerdict = useMemo((): 'recommend' | 'slight' | 'none' => {
-    if (!comparison || !comparison.bestRouteId) return 'none';
-    const best = comparison.versus.find((v) => v.routeId === comparison.bestRouteId);
-    if (!best || best.verdict === 'none') {
-      const slight = comparison.versus.find((v) => v.verdict === 'slight');
-      return slight ? 'slight' : 'none';
-    }
-    return best.verdict;
-  }, [comparison]);
+  const { comparison, routes, observations, forecast, departISO, nowMs, planned } = model;
 
   // ── Segment styling: colour by RELATIVE modeled exposure, min→max on screen ──
   const styles = useMemo<Record<string, SegmentStyle>>(() => {
     const out: Record<string, SegmentStyle> = {};
     if (!comparison) return out;
 
-    /**
-     * The exposure index is the modeled concentration on the segment (µg/m³). That
-     * is exactly the quantity the map colour is meant to show, so it is stated
-     * plainly rather than being a composite the UI would have to explain.
-     */
     const exposureById = new Map<string, number>();
     for (const trip of comparison.trips) {
       for (const seg of trip.segments) {
         if (!Number.isFinite(seg.concentration)) continue;
-        // A shared segment has one exposure; the first consistent reading wins.
-        if (!exposureById.has(seg.segmentId)) {
-          exposureById.set(seg.segmentId, seg.concentration);
-        }
+        if (!exposureById.has(seg.segmentId)) exposureById.set(seg.segmentId, seg.concentration);
       }
     }
 
@@ -91,26 +68,22 @@ export function App() {
         const recommended = comparison.bestRouteId === trip.routeId;
         const dimmed = !recommended && trip.routeId !== comparison.baselineRouteId;
         const exposure = exposureById.get(seg.segmentId) ?? 0;
-        const share =
-          trip.segments.length > 0 ? 1 / trip.segments.length : 1 / Math.max(1, trip.segments.length);
-        const minutesHere = trip.durationMin * share;
-
+        const share = 1 / Math.max(1, trip.segments.length);
         out[seg.segmentId] = {
           routeId: trip.routeId,
           routeName: route.name,
           color: exposureColor(exposure, min, max),
-          minutesLabel: `${Math.round(minutesHere)} min`,
+          minutesLabel: `${Math.round(trip.durationMin * share)} min`,
           confidence: seg.confidence,
           recommended,
           dimmed,
         };
       }
     }
-
     return out;
   }, [comparison, routes]);
 
-  // ── Midpoint label for each route: name + minutes ─────────────────────────
+  // ── Route labels: name + real router duration ─────────────────────────────
   const routeLabels = useMemo<RouteLabel[]>(() => {
     if (!comparison) return [];
     const out: RouteLabel[] = [];
@@ -118,14 +91,12 @@ export function App() {
 
     comparison.trips.forEach((trip, index) => {
       const route = routes.find((r) => r.id === trip.routeId);
+      const plannedRoute = planned.find((p) => p.route.id === trip.routeId);
       if (!route || route.segments.length === 0) return;
 
-      /**
-       * The three demo routes share most of their corridor, so a chip at the same
-       * fraction on each would land on the same pixels and hide one another. Spread
-       * them along their own route AND nudge each perpendicular to the direction of
-       * travel, so every chip is legible.
-       */
+      // Real router duration when we have it; the engine estimate otherwise.
+      const minutes = plannedRoute ? plannedRoute.durationS / 60 : trip.durationMin;
+
       const fraction = 0.38 + (index / total) * 0.24;
       const segIdx = Math.min(
         route.segments.length - 1,
@@ -136,7 +107,6 @@ export function App() {
       const coord = seg.coords[coordIdx];
       if (!coord) return;
 
-      // Perpendicular direction of travel along this segment, in degrees.
       const a = seg.coords[Math.max(0, coordIdx - 1)];
       const b = seg.coords[Math.min(seg.coords.length - 1, coordIdx + 1)];
       const bearing = Math.atan2(b.lon - a.lon, b.lat - a.lat);
@@ -145,18 +115,19 @@ export function App() {
       out.push({
         routeId: trip.routeId,
         name: route.name,
-        minutes: trip.durationMin,
+        minutes,
         lat: coord.lat + (nudgeM * Math.cos(bearing)) / 111_320,
-        lon: coord.lon + (nudgeM * Math.sin(bearing)) / (111_320 * Math.cos((coord.lat * Math.PI) / 180)),
+        lon:
+          coord.lon +
+          (nudgeM * Math.sin(bearing)) / (111_320 * Math.cos((coord.lat * Math.PI) / 180)),
         recommended: comparison.bestRouteId === trip.routeId,
-        dimmed: comparison.bestRouteId !== trip.routeId && trip.routeId !== comparison.baselineRouteId,
+        dimmed:
+          comparison.bestRouteId !== trip.routeId && trip.routeId !== comparison.baselineRouteId,
       });
     });
-
     return out;
-  }, [comparison, routes]);
+  }, [comparison, routes, planned]);
 
-  // ── Departure labels ─────────────────────────────────────────────────────
   const departureLabel = useMemo(() => formatLocalTime(departISO), [departISO]);
 
   const departureShort = useMemo(() => {
@@ -168,14 +139,18 @@ export function App() {
     return `Leave in ${m} min`;
   }, [model.offsetMin]);
 
-  // ── Best-time hint, only when the sweep genuinely supports it ─────────────
+  const headlineVerdict = useMemo((): 'recommend' | 'slight' | 'none' => {
+    if (!comparison || !comparison.bestRouteId) return 'none';
+    const best = comparison.versus.find((v) => v.routeId === comparison.bestRouteId);
+    if (!best || best.verdict === 'none') {
+      return comparison.versus.find((v) => v.verdict === 'slight') ? 'slight' : 'none';
+    }
+    return best.verdict;
+  }, [comparison]);
+
   const bestTimeHint = useMemo((): string | null => {
     const sweep: SweepPoint[] = model.sweep;
-    if (sweep.length < 2) return null;
-    if (headlineVerdict !== 'recommend') return null;
-
-    // Only look FORWARD from the current selection, and only accept a later
-    // departure the engine itself rates as a 'recommend'.
+    if (sweep.length < 2 || headlineVerdict !== 'recommend') return null;
     let best: { offsetMin: number; routeId: string; pct: number } | null = null;
     for (const p of sweep) {
       if (p.offsetMin <= model.offsetMin) continue;
@@ -187,14 +162,12 @@ export function App() {
       }
     }
     if (!best) return null;
-
     const name = routes.find((r) => r.id === best!.routeId)?.name ?? 'that route';
     const mins = best.offsetMin - model.offsetMin;
     if (mins <= 0) return null;
     return `Leaving ${mins} min later looks better on ${name} in this model.`;
   }, [model.sweep, model.offsetMin, routes, headlineVerdict]);
 
-  // ── Transient toast ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 4200);
@@ -206,101 +179,65 @@ export function App() {
     setBreakdownOpen(true);
   }, []);
 
-  const handleDockOpen = useCallback((id: DockId) => {
-    if (id === 'method') {
-      openBreakdown('how');
-      return;
-    }
-    if (id === 'evidence') {
-      setEvidenceOpen(true);
-      return;
-    }
-    if (id === 'diary') {
-      setDiaryOpen(true);
-      return;
-    }
-    if (id === 'school') {
-      setSchoolOpen(true);
-      return;
-    }
-    if (id === 'demo') {
-      setDemoOpen(true);
-      return;
-    }
-    setDockPanel(id);
-  }, [openBreakdown]);
+  const handleDockOpen = useCallback(
+    (id: DockId) => {
+      if (id === 'method') return openBreakdown('how');
+      if (id === 'evidence') return setEvidenceOpen(true);
+      if (id === 'diary') return setDiaryOpen(true);
+      if (id === 'school') return setSchoolOpen(true);
+      if (id === 'demo') return setDemoOpen(true);
+      setDockPanel(id);
+    },
+    [openBreakdown],
+  );
 
-  const openSegmentDetails = useCallback(() => {
-    openBreakdown('segments');
-  }, [openBreakdown]);
-
-  if (model.state === 'loading') {
-    return (
-      <div className="flex h-dvh items-center justify-center bg-slate-100 dark:bg-slate-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-600 dark:border-slate-700 dark:border-t-emerald-400" />
-          <p className="text-sm text-slate-600 dark:text-slate-300">Loading the modeled forecast…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (model.state === 'error') {
-    return (
-      <div className="flex h-dvh items-center justify-center bg-slate-100 p-6 dark:bg-slate-950">
-        <div className="max-w-sm text-center">
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            Could not start
-          </h1>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            {model.error ?? 'Something went wrong while loading.'}
-          </p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-          >
-            Reload
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const visibleObservations = showSimulated
-    ? observations
-    : observations.filter((o) => !o.isSimulated);
+  // ── Empty state: no trip planned yet, or an honest error ──────────────────
+  const hasTrip = model.origin !== null && model.destination !== null;
+  const showEmpty = !hasTrip || routes.length === 0;
 
   return (
     <div className="relative h-dvh w-screen overflow-hidden">
-      <MapView
-        routes={routes}
-        styles={styles}
-        routeLabels={routeLabels}
-        selectedSegmentId={selectedSegmentId}
-        onSelectSegment={setSelectedSegmentId}
-        origin={model.origin}
-        destination={model.destination}
-        school={model.school}
-        observations={visibleObservations}
-        showSimulated={showSimulated}
-        theme={theme}
-        onTileFailure={() => setTileFailed(true)}
-      />
+      {routes.length > 0 && (
+        <MapView
+          routes={routes}
+          styles={styles}
+          routeLabels={routeLabels}
+          selectedSegmentId={selectedSegmentId}
+          onSelectSegment={setSelectedSegmentId}
+          origin={model.origin ? { lat: model.origin.lat, lon: model.origin.lon } : null}
+          destination={
+            model.destination ? { lat: model.destination.lat, lon: model.destination.lon } : null
+          }
+          school={null}
+          observations={observations}
+          showSimulated={false}
+          theme={theme}
+          onTileFailure={() => setTileFailed(true)}
+        />
+      )}
 
       <HonestyPill source={forecast?.source ?? null} />
 
       <PlannerCard
         routes={routes}
+        origin={model.origin}
+        destination={model.destination}
+        onOriginChange={model.setOrigin}
+        onDestinationChange={model.setDestination}
+        onUseMyLocation={model.useMyLocation}
+        locating={model.phase === 'locating'}
+        onSwap={model.swap}
         mode={model.mode}
         onModeChange={model.setMode}
-        baselineRouteId={model.baselineRouteId}
-        onBaselineChange={model.setBaselineRouteId}
         offsetMin={model.offsetMin}
         onOffsetChange={model.setOffsetMin}
+        baselineRouteId={model.baselineRouteId}
+        onBaselineChange={model.setBaselineRouteId}
         departureLabel={departureLabel}
         departureShort={departureShort}
-        busy={comparison === null}
+        routing={model.phase === 'routing'}
+        error={model.error}
+        onRetry={model.retry}
       />
 
       <FeatureDock
@@ -310,22 +247,29 @@ export function App() {
         onAddEvidence={() => setEvidenceOpen(true)}
       />
 
-      <RouteSummaryCard
-        comparison={comparison}
-        routes={routes}
-        bestTimeHint={bestTimeHint}
-        onOpenBreakdown={() => openBreakdown()}
-        onAddEvidence={() => setEvidenceOpen(true)}
-        onOpenEvidence={() => setEvidenceOpen(true)}
-        collapsed={summaryCollapsed}
-        onToggleCollapsed={() => setSummaryCollapsed((v) => !v)}
-      />
-
-      {/* Stacked above Leaflet's own bottom-right controls so nothing overlaps. */}
-      <div className={`pointer-events-auto absolute bottom-[5.75rem] right-3 z-[1100] flex flex-col items-end gap-1.5 sm:bottom-[6rem] sm:right-6`}>
-        <SimulatedToggle show={showSimulated} onToggle={setShowSimulated} />
-        <MapLegend />
-      </div>
+      {showEmpty ? (
+        <EmptyState
+          hasTrip={hasTrip}
+          routing={model.phase === 'routing'}
+          error={model.error}
+          onRetry={model.retry}
+          onUseMyLocation={model.useMyLocation}
+        />
+      ) : (
+        <>
+          <RouteSummaryCard
+            comparison={comparison}
+            routes={routes}
+            bestTimeHint={bestTimeHint}
+            onOpenBreakdown={() => openBreakdown()}
+            onAddEvidence={() => setEvidenceOpen(true)}
+            onOpenEvidence={() => setEvidenceOpen(true)}
+            collapsed={summaryCollapsed}
+            onToggleCollapsed={() => setSummaryCollapsed((v) => !v)}
+          />
+          <MapLegend />
+        </>
+      )}
 
       {tileFailed && (
         <p className="pointer-events-none absolute bottom-40 left-1/2 z-[1100] -translate-x-1/2 rounded-full bg-amber-100 px-3 py-1 text-[11px] font-medium text-amber-900 ring-1 ring-amber-400 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-400/40">
@@ -336,36 +280,34 @@ export function App() {
       {toast && (
         <div
           role="status"
-          className="pointer-events-auto absolute left-1/2 top-24 z-[1400] -translate-x-1/2 rounded-xl bg-slate-900/90 px-3 py-2 text-xs font-medium text-white shadow-lg dark:bg-slate-100/95 dark:text-slate-900"
+          className="pointer-events-auto absolute left-1/2 top-24 z-[1400] -translate-x-1/2 rounded-lg bg-slate-900/90 px-3 py-2 text-xs font-medium text-white dark:bg-slate-100/95 dark:text-slate-900"
         >
           {toast}
         </div>
       )}
 
-      <SegmentPeek
-        segmentId={selectedSegmentId}
-        segments={model.segments}
-        onDetails={openSegmentDetails}
-        onClose={() => setSelectedSegmentId(null)}
-      />
+      {selectedSegmentId && routes.length > 0 && (
+        <SegmentPeek
+          segmentId={selectedSegmentId}
+          segments={model.segments}
+          onDetails={() => openBreakdown('segments')}
+          onClose={() => setSelectedSegmentId(null)}
+        />
+      )}
 
       <EvidenceModal
         open={evidenceOpen}
         onClose={() => setEvidenceOpen(false)}
         observations={observations}
-        showSimulated={showSimulated}
-        defaultLocation={model.origin}
+        showSimulated={false}
+        defaultLocation={(model.origin ?? model.destination) ?? VALLEY}
         currentISO={new Date(nowMs).toISOString().replace(/\.\d{3}Z$/, 'Z')}
         forecast={forecast}
         segments={model.segments}
         onAdd={(obs) => {
           model.addObservation(obs);
           setEvidenceOpen(false);
-          setToast(
-            obs.isSimulated
-              ? 'Simulated demo observation added.'
-              : 'Your evidence was added. Nearby segments were updated.',
-          );
+          setToast('Your evidence was added. Nearby segments were updated.');
         }}
         onError={(message) => setToast(message)}
       />
@@ -379,7 +321,7 @@ export function App() {
         sweep={model.sweep}
         selectedSegmentId={selectedSegmentId}
         onSelectSegment={setSelectedSegmentId}
-        sensitivity={model.sensitivity}
+        sensitivity={model.sensitivityReport}
         onRunSensitivity={model.runSensitivity}
         fittedBias={model.fittedBias}
         params={currentEngineParams()}
@@ -407,17 +349,82 @@ export function App() {
         onClose={() => setSchoolOpen(false)}
         forecast={forecast}
         segments={model.segments}
+        destination={model.destination}
       />
 
-      <DemoTourModal
-        open={demoOpen}
-        onClose={() => setDemoOpen(false)}
-        routes={routes}
-      />
+      <DemoTourModal open={demoOpen} onClose={() => setDemoOpen(false)} routes={routes} />
 
       {dockPanel && dockPanel !== 'method' && dockPanel !== 'evidence' && (
         <ComingSoonPanel panel={dockPanel} onClose={() => setDockPanel(null)} />
       )}
+    </div>
+  );
+}
+
+/** Honest first-run state. Never fabricates a route to fill the space. */
+function EmptyState({
+  hasTrip,
+  routing,
+  error,
+  onRetry,
+  onUseMyLocation,
+}: {
+  hasTrip: boolean;
+  routing: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onUseMyLocation: () => void;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[1050] flex items-center justify-center px-6">
+      <div className="pointer-events-auto max-w-sm rounded-2xl bg-white/90 p-5 text-center shadow-lg ring-1 ring-slate-300 backdrop-blur dark:bg-slate-900/90 dark:ring-slate-600">
+        {routing ? (
+          <>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Finding real routes…
+            </h2>
+            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">
+              Live OpenStreetMap routing for your actual start and destination.
+            </p>
+          </>
+        ) : error ? (
+          <>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Could not plan that trip
+            </h2>
+            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">{error}</p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+            >
+              Try again
+            </button>
+          </>
+        ) : (
+          <>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Plan a real commute
+            </h2>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+              Set your start point and destination. Routes come from live OpenStreetMap data, and
+              the app compares modeled relative exposure between them.
+            </p>
+            <button
+              type="button"
+              onClick={onUseMyLocation}
+              className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+            >
+              Use my live location
+            </button>
+            {!hasTrip && (
+              <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                …or search for both places in the panel above.
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -429,28 +436,21 @@ function SegmentPeek({
   onDetails,
   onClose,
 }: {
-  segmentId: string | null;
-  segments: Array<{ id: string; roadClass: string; lengthM: number; features: { greenFraction100m: number; distToMainRoadM: number } }>;
+  segmentId: string;
+  segments: Array<{ id: string; roadClass: string }>;
   onDetails: () => void;
   onClose: () => void;
 }) {
   const seg = segments.find((s) => s.id === segmentId);
   if (!seg) return null;
-
-  const mainRoad = seg.roadClass === 'trunk' || seg.roadClass === 'primary' || seg.roadClass === 'secondary';
-  const green = seg.features.greenFraction100m;
-  const nearMain = seg.features.distToMainRoadM <= 80;
-
+  const mainRoad =
+    seg.roadClass === 'trunk' || seg.roadClass === 'primary' || seg.roadClass === 'secondary';
   const text = mainRoad
     ? 'Busy road · higher modeled exposure on this stretch'
-    : green > 0.5 && nearMain
-      ? 'Green path, but close to a busy road'
-      : green > 0.5
-        ? 'Quiet green path · lower modeled exposure here'
-        : 'Quiet street · lower modeled exposure here';
+    : 'Quieter street · lower modeled exposure here';
 
   return (
-    <div className="pointer-events-auto absolute bottom-36 left-1/2 z-[1100] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-white/90 px-3 py-2.5 shadow-xl ring-1 ring-slate-300 backdrop-blur dark:bg-slate-900/90 dark:ring-slate-600">
+    <div className="pointer-events-auto absolute bottom-36 left-1/2 z-[1100] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-white/90 px-3 py-2.5 shadow-lg ring-1 ring-slate-300 dark:bg-slate-900/90 dark:ring-slate-600">
       <div className="flex items-start gap-2">
         <p className="flex-1 text-xs font-medium text-slate-800 dark:text-slate-100">{text}</p>
         <button
@@ -465,7 +465,7 @@ function SegmentPeek({
       <button
         type="button"
         onClick={onDetails}
-        className="mt-1 text-[11px] font-semibold text-emerald-700 underline underline-offset-2 hover:text-emerald-600 dark:text-emerald-400"
+        className="mt-1 text-[11px] font-semibold text-emerald-700 underline underline-offset-2 dark:text-emerald-400"
       >
         Details
       </button>
@@ -473,41 +473,30 @@ function SegmentPeek({
   );
 }
 
-/** Placeholder shell for the Phase 6 dock panels. */
 function ComingSoonPanel({ panel, onClose }: { panel: DockId; onClose: () => void }) {
-  const titles: Record<string, string> = {
-    diary: 'Diary',
-    school: 'School',
-    demo: 'Demo tour',
-  };
+  const titles: Record<string, string> = { diary: 'Diary', school: 'School', demo: 'Demo tour' };
   return (
     <div className="fixed inset-0 z-[1400] flex items-end justify-center sm:items-center">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/20" />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={titles[panel] ?? panel}
-        className="relative w-full max-w-md rounded-t-2xl bg-white/95 p-4 shadow-2xl ring-1 ring-slate-300 dark:bg-slate-900/95 dark:ring-slate-600"
+        className="relative w-full max-w-md rounded-2xl bg-white/95 p-4 shadow-xl ring-1 ring-slate-300 dark:bg-slate-900/95 dark:ring-slate-600"
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {titles[panel] ?? panel}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            Close
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
-          Arriving in a later phase.
-        </p>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          {titles[panel] ?? panel}
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-2 rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-100"
+        >
+          Close
+        </button>
       </div>
     </div>
   );
 }
 
-// Re-export so the engine's verdict wording stays in one place if it changes.
 export { engine };
+export type { LatLon };

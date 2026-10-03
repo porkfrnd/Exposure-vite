@@ -1,5 +1,6 @@
 /**
- * Diary modal: save commute, weekly bar chart, demo week (SIM).
+ * Diary modal: save a real planned commute, weekly bar chart. Every entry is the
+ * user's own real trip — there are no seeded or simulated entries.
  */
 
 import { useEffect, useState } from 'react';
@@ -21,7 +22,6 @@ interface DiaryEntry {
   doseUg: number;
   durationMin: number;
   comparison: Comparison;
-  isSimulated: boolean;
 }
 
 function loadDiary(): DiaryEntry[] {
@@ -83,7 +83,6 @@ export function DiaryModal({
   onToast: (msg: string) => void;
 }) {
   const [entries, setEntries] = useState<DiaryEntry[]>(() => loadDiary());
-  const [showDemoWeek, setShowDemoWeek] = useState(false);
 
   useEffect(() => {
     if (open) setEntries(loadDiary());
@@ -103,7 +102,6 @@ export function DiaryModal({
       doseUg: trip.doseUg,
       durationMin: trip.durationMin,
       comparison,
-      isSimulated: false,
     };
     setEntries((prev) => {
       const next = [entry, ...prev];
@@ -113,53 +111,12 @@ export function DiaryModal({
     onToast('Commute saved to diary.');
   };
 
-  const loadDemoWeek = () => {
-    // Generate a deterministic demo week (SIM)
-    const base = Date.now() - 3 * 86_400_000; // ~3 days ago
-    const demo: DiaryEntry[] = [];
-    const modes: Mode[] = ['walk', 'cycle', 'bus'];
-    for (let d = 0; d < 7; d++) {
-      const dayStart = base + d * 86_400_000;
-      const m = modes[d % 3];
-      const fc = dataApi.getDemoRoutes(); // get routes to build comparison
-      // We can't run comparison synchronously here, so create placeholder entries
-      demo.push({
-        id: `demo-${d}`,
-        timestamp: dayStart + 1000 * d,
-        departISO: new Date(dayStart + 8 * 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
-        mode: m,
-        routeId: 'main-road',
-        baselineRouteId: 'side-streets',
-        doseUg: Math.round(40 + Math.sin(d) * 20),
-        durationMin: 30 + (d % 3) * 5,
-        comparison: { bestRouteId: 'park-path' } as Comparison,
-        isSimulated: true,
-      });
-    }
-    setEntries((prev) => {
-      const next = [...demo, ...prev.filter((e) => !e.isSimulated)];
-      saveDiary(next);
-      return next;
-    });
-    setShowDemoWeek(true);
-    onToast('Demo week loaded (simulated data).');
-  };
-
   const deleteEntry = (id: string) => {
     setEntries((prev) => {
       const next = prev.filter((e) => e.id !== id);
       saveDiary(next);
       return next;
     });
-  };
-
-  const clearDemo = () => {
-    setEntries((prev) => {
-      const next = prev.filter((e) => !e.isSimulated);
-      saveDiary(next);
-      return next;
-    });
-    setShowDemoWeek(false);
   };
 
   // Weekly chart data
@@ -175,7 +132,7 @@ export function DiaryModal({
   // Entries list (extracted to avoid JSX parser confusion with complex conditionals)
   const entriesList = entries.length === 0 ? (
     <p className="text-center text-slate-500 dark:text-slate-400 py-4 text-sm">
-      No entries yet. Save a commute or load the demo week.
+      No entries yet. Plan a commute and save it to build your week.
     </p>
   ) : (
     <ul className="space-y-2">
@@ -183,9 +140,7 @@ export function DiaryModal({
         <li
           key={e.id}
           className={`rounded-xl p-2.5 ring-1 ${
-            e.isSimulated
-              ? 'bg-amber-50 dark:bg-amber-500/10 ring-amber-300/50'
-              : 'bg-white/80 dark:bg-slate-800/80 ring-slate-300'
+            'bg-white/80 dark:bg-slate-800/80 ring-slate-300'
           }`}
         >
           <div className="flex items-start justify-between gap-2">
@@ -197,11 +152,6 @@ export function DiaryModal({
                 <span className="text-slate-500 dark:text-slate-400">
                   {e.mode === 'walk' ? '🚶' : e.mode === 'cycle' ? '🚲' : '🚌'}
                 </span>
-                {e.isSimulated && (
-                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-300">
-                    SIM
-                  </span>
-                )}
               </div>
               <div className="flex flex-wrap gap-1 mt-0.5 text-[10px] text-slate-600 dark:text-slate-300">
                 <span>Route: {e.routeId}</span>
@@ -274,7 +224,7 @@ export function DiaryModal({
             ))}
           </div>
           <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-            Bars show total modeled dose per Nepal day. Demo entries marked SIM.
+            Bars show total modeled dose per Nepal day, from your own saved commutes.
           </p>
         </div>
 
@@ -296,22 +246,6 @@ export function DiaryModal({
             <Calendar size={12} aria-hidden />
             Save this commute
           </button>
-          <button
-            type="button"
-            onClick={loadDemoWeek}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold ring-1 ring-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600`}
-          >
-            Load demo week
-          </button>
-          {showDemoWeek && (
-            <button
-              type="button"
-              onClick={clearDemo}
-              className={`rounded-xl px-3 py-2 text-xs font-semibold ring-1 ring-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600`}
-            >
-              Clear demo
-            </button>
-          )}
         </div>
       </div>
     </div>

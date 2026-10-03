@@ -515,7 +515,7 @@ export function BreakdownDrawer(props: BreakdownDrawerProps) {
               <li>Road multipliers are assumptions taken from general air-pollution modelling practice, not Kathmandu measurements.</li>
               <li>Photo haze is affected by light, cloud, sun angle and unknown scene depth, so it is a rough relative nudge.</li>
               <li>Dust from roadworks and unpaved roads is not captured by road class.</li>
-              <li>The demo route paths follow real OpenStreetMap roads (OSRM output), but road classes and density features on them are hand-authored proxies, not OSM tags.</li>
+              <li>Road classes come from real OpenStreetMap tags. Green fraction, building density, signals and bus stops have no keyless source, so they are held at neutral assumptions and do not differentiate routes.</li>
               <li>Outputs are modeled exposure estimates. They are not medical or health-risk claims.</li>
             </ul>
           </Accordion>

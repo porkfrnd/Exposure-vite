@@ -3,10 +3,9 @@
  *
  * HONESTY: photos produce a RELATIVE haze index from the dark-channel prior. That
  * index is displayed as "relative haze", never as a concentration, and the result
- * is labelled simulated when it comes from the demo set.
+ * Every observation here is the user's own; none are simulated.
  *
- * Everything created here carries isSimulated = false: it is the user's own
- * contribution, and it must be distinguishable from the demo seeds at a glance.
+ * Everything created here is a real contribution from this session.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -345,8 +344,7 @@ export function EvidenceModal(props: EvidenceModalProps) {
           <Check size={12} className="mt-0.5 shrink-0" aria-hidden />
           <span>
             <span className={NUMBERS}>{yourCount}</span> observation(s) you added this session ·{' '}
-            {props.observations.length - yourCount} simulated demo seed(s) · evidence is stored on this
-            device only.
+            {props.observations.length} observation(s) from this session · stored on this device only.
           </span>
         </p>
       </div>

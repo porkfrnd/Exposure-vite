@@ -70,7 +70,7 @@ export function FeatureDock({ theme, onToggleTheme, onOpen, onAddEvidence }: Fea
  * Map legend: colour ramp + the dashed "estimated only" entry.
  *
  * Rendered inside a stack owned by App rather than positioned absolutely itself, so
- * it can never collide with the simulated-pins toggle or Leaflet's own controls.
+ * it can never collide with the toggle above it or Leaflet's own controls.
  */
 export function MapLegend() {
   return (
@@ -115,26 +115,6 @@ export function HonestyPill({ source }: { source: 'live' | 'cached' | 'fixture' 
         </span>
       )}
     </div>
-  );
-}
-
-export function SimulatedToggle({
-  show,
-  onToggle,
-}: {
-  show: boolean;
-  onToggle: (v: boolean) => void;
-}) {
-  return (
-    <label className={`${GLASS_CARD} pointer-events-auto inline-flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200`}>
-      <input
-        type="checkbox"
-        checked={show}
-        onChange={(e) => onToggle(e.target.checked)}
-        className={`${FOCUS_RING} h-3.5 w-3.5 accent-emerald-600`}
-      />
-      Show simulated demo pins
-    </label>
   );
 }
 

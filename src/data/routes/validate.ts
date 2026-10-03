@@ -122,29 +122,50 @@ function validateSegment(seg: Segment, where: string, issues: ValidationIssue[])
     }
   }
 
-  // Internal consistency: a main road is 0 m from a main road.
-  if (MAIN_ROAD_CLASSES.includes(seg.roadClass) && f.distToMainRoadM !== 0) {
-    issues.push({
-      severity: 'error',
-      message: `segment "${seg.id}" is ${seg.roadClass} so distToMainRoadM must be 0, got ${f.distToMainRoadM}`,
-      where,
-    });
-  }
-
-  // Internal consistency: if a footway lists a nearby main road, its declared
-  // distToMainRoadM must not exceed that road's distance by more than the 15% rule.
-  if (!MAIN_ROAD_CLASSES.includes(seg.roadClass) && Array.isArray(f.nearbyRoads)) {
+  // Internal consistency: distToMainRoadM is the distance to the nearest OTHER
+  // trunk/primary/secondary road. A main road is 0 only when no such neighbour is
+  // within range; a main road genuinely 139 m from the next arterial is correct
+  // data, not a violation. So the invariant is: a non-main segment that lists no
+  // main road within range must not claim a non-zero main-road distance.
+  if (!Array.isArray(f.nearbyRoads)) {
+    // already reported above
+  } else {
     const nearestMain = f.nearbyRoads
       .filter((n) => MAIN_ROAD_CLASSES.includes(n.roadClass))
       .reduce((min, n) => Math.min(min, n.distanceM), Number.POSITIVE_INFINITY);
-    if (Number.isFinite(nearestMain) && f.distToMainRoadM > nearestMain * (1 + LENGTH_TOLERANCE) + 1) {
+
+    if (MAIN_ROAD_CLASSES.includes(seg.roadClass)) {
+      // A main road: 0 when it is the only arterial nearby, otherwise the measured
+      // distance to the next one. Both are valid.
+      if (!Number.isFinite(nearestMain) && f.distToMainRoadM !== 0) {
+        issues.push({
+          severity: 'warning',
+          message: `segment "${seg.id}" is ${seg.roadClass} with no main road in nearbyRoads, so distToMainRoadM should be 0`,
+          where,
+        });
+      }
+    } else if (f.distToMainRoadM > 0 && !Number.isFinite(nearestMain)) {
       issues.push({
         severity: 'error',
         message:
-          `segment "${seg.id}" declares distToMainRoadM ${f.distToMainRoadM} m but lists a ` +
-          `main road at ${nearestMain} m`,
+          `segment "${seg.id}" declares distToMainRoadM ${f.distToMainRoadM} m but lists no ` +
+          `main road in nearbyRoads`,
         where,
       });
+    }
+
+    if (!MAIN_ROAD_CLASSES.includes(seg.roadClass) && Number.isFinite(nearestMain)) {
+      // If a footway lists a nearby main road, its declared distance must not exceed
+      // that road's distance by more than the 15% rule.
+      if (f.distToMainRoadM > nearestMain * (1 + LENGTH_TOLERANCE) + 1) {
+        issues.push({
+          severity: 'error',
+          message:
+            `segment "${seg.id}" declares distToMainRoadM ${f.distToMainRoadM} m but lists a ` +
+            `main road at ${nearestMain} m`,
+          where,
+        });
+      }
     }
   }
 }

@@ -1,21 +1,14 @@
 /**
- * The single source of truth for the app's numbers.
+ * Application state. ALL data is REAL: live Open-Meteo air quality, live OSM
+ * routing, live OSM road classes, live place search.
  *
- * DATA FLOW (exactly as specified for Phase 3):
- *   1. on load: forecast = await dataApi.getForecast(); routes; seeds; baseline
- *   2. ctx = { forecast }
- *   3. predictFn = (seg, t) => engine.predict(seg, t, ctx)     ← UNCORRECTED model
- *   4. corrections(atISO) = dataApi.computeCorrections({ observations, segments, atISO, predict })
- *      memoised per (observations version, atISO)
- *   5. comparison = engine.compareRoutes(routes, baseline, mode, departISO, { forecast, corrections })
- *   6. sweep = engine.departureSweep(routes, baseline, mode, nowHour, offsets, ctx, corrections)
- *   7. adding a photo/report bumps the observations version and everything recomputes
- *
- * Every heavy call is memoised so the departure slider stays responsive.
+ * Nothing is invented. There are no demo routes and no simulated observation pins.
+ * When a service fails the UI shows an honest error with a retry.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { engine, dataApi } from '../wiring';
+import { engine, realApi, dataApi } from '../wiring';
+import type { Place, Planned } from '../wiring';
 import type {
   BiasModel,
   Comparison,
@@ -24,91 +17,46 @@ import type {
   LatLon,
   Mode,
   Observation,
-  PredictFn,
   Route,
   Segment,
-  SensitivityReport,
   SweepPoint,
 } from '@/contracts';
 
-/** Slider steps: "now" then every 30 min to +3 h. */
 export const DEPARTURE_OFFSETS = [0, 30, 60, 90, 120, 150, 180];
 
-export type LoadState = 'loading' | 'ready' | 'error';
-
-export interface ExposureModel {
-  state: LoadState;
-  error: string | null;
-  forecast: Forecast | null;
-  routes: Route[];
-  segments: Segment[];
-  origin: LatLon;
-  destination: LatLon;
-  school: { name: string; lat: number; lon: number } | null;
-
-  mode: Mode;
-  setMode: (m: Mode) => void;
-  baselineRouteId: string;
-  setBaselineRouteId: (id: string) => void;
-  offsetMin: number;
-  setOffsetMin: (n: number) => void;
-  departISO: string;
-  /** Instant treated as "now", rounded down to the hour (slider origin). */
-  nowHourISO: string;
-  /** Instant treated as "now" at full precision. */
-  nowMs: number;
-
-  observations: Observation[];
-  addObservation: (obs: Observation) => void;
-  observationsVersion: number;
-
-  corrections: CorrectionMap;
-  comparison: Comparison | null;
-  sweep: SweepPoint[];
-  sensitivity: SensitivityReport | null;
-
-  fittedBias: BiasModel | null;
-  applyFittedBias: (bias: BiasModel | null) => void;
-  /** Recompute the ranking-stability report on demand (not on every render). */
-  runSensitivity: () => void;
-}
+export type Phase = 'idle' | 'locating' | 'routing' | 'ready' | 'error';
 
 function isoAt(ms: number): string {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** First coordinate of the first segment, or Kathmandu, as the map centre. */
-function originOf(routes: Route[], fallback: LatLon): LatLon {
-  const first = routes[0]?.segments[0]?.coords[0];
-  return first ? { lat: first.lat, lon: first.lon } : fallback;
+/** Coerce anything thrown into a message we can honestly show a user. */
+function messageOf(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  return 'Something went wrong.';
 }
 
-/** Last coordinate of the last route's last segment. */
-function destinationOf(routes: Route[], fallback: LatLon): LatLon {
-  const lastRoute = routes[routes.length - 1];
-  const coords = lastRoute?.segments[lastRoute.segments.length - 1]?.coords;
-  const last = coords?.[coords.length - 1];
-  return last ? { lat: last.lat, lon: last.lon } : fallback;
-}
-
-export function useExposureModel(): ExposureModel {
-  const [state, setState] = useState<LoadState>('loading');
+export function useExposureModel() {
+  const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [forecast, setForecast] = useState<Forecast | null>(null);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [school, setSchool] = useState<{ name: string; lat: number; lon: number } | null>(null);
-
+  const [origin, setOrigin] = useState<Place | null>(null);
+  const [destination, setDestination] = useState<Place | null>(null);
+  const [planned, setPlanned] = useState<Planned[]>([]);
   const [mode, setMode] = useState<Mode>('walk');
   const [baselineRouteId, setBaselineRouteId] = useState('');
   const [offsetMin, setOffsetMin] = useState(0);
-
   const [observations, setObservations] = useState<Observation[]>([]);
-  const [observationsVersion, setObservationsVersion] = useState(0);
-
   const [fittedBias, setFittedBias] = useState<BiasModel | null>(null);
+  const [sensitivity, setSensitivity] = useState<SweepPoint[]>([]);
+  const [sensitivityReport, setSensitivityReport] = useState<{
+    pairs: number;
+    stablePairs: number;
+    stability: number;
+    scales: number[];
+  } | null>(null);
 
-  // "Now" is read once per session and then advanced in whole minutes, so the
-  // departure instants the engine sees are stable across re-renders.
   const [nowMs] = useState(() => Date.now());
   const nowHourISO = useMemo(() => {
     const d = new Date(nowMs);
@@ -116,89 +64,125 @@ export function useExposureModel(): ExposureModel {
     return isoAt(d.getTime());
   }, [nowMs]);
 
-  // ── Initial load ──────────────────────────────────────────────────────────
+  const abortRef = useRef<AbortController | null>(null);
+
+  // ── Forecast on load ──────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    setState('loading');
-
     (async () => {
       try {
-        const [fc, rs, schoolInfo] = await Promise.all([
-          dataApi.getForecast(),
-          Promise.resolve(dataApi.getDemoRoutes()),
-          Promise.resolve(dataApi.getDemoSchool()),
-        ]);
-        const seeds = dataApi.getSeedObservations();
-
-        const unique = new Map<string, Segment>();
-        for (const r of rs) for (const s of r.segments) if (!unique.has(s.id)) unique.set(s.id, s);
-
-        if (cancelled) return;
-        setForecast(fc);
-        setRoutes(rs);
-        setBaselineRouteId(rs[0]?.id ?? '');
-        setObservations(seeds);
-        setObservationsVersion(1);
-        setSchool({
-          name: schoolInfo.name,
-          lat: schoolInfo.segment.coords[0].lat,
-          lon: schoolInfo.segment.coords[0].lon,
-        });
-        setState('ready');
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : 'could not load the forecast');
-        setState('error');
+        const fc = await realApi.getForecast();
+        if (!cancelled) setForecast(fc.forecast);
+      } catch {
+        // A missing forecast is not fatal: routing and place search still work, and
+        // the UI says the exposure layer is unavailable rather than faking numbers.
+        if (!cancelled) setForecast(null);
       }
     })();
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // ── Evidence accumulation ─────────────────────────────────────────────────
-  const addObservation = useCallback((obs: Observation) => {
-    setObservations((prev) => [...prev, obs]);
-    setObservationsVersion((v) => v + 1);
-  }, []);
+  // ── Plan real routes whenever the trip or mode changes ─────────────────────
+  const plan = useCallback(async () => {
+    if (!origin || !destination) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
 
-  const applyFittedBias = useCallback((bias: BiasModel | null) => {
-    setFittedBias(bias);
-  }, []);
+    setPhase('routing');
+    setError(null);
+    try {
+      const routes = await realApi.plan({
+        origin: { lat: origin.lat, lon: origin.lon },
+        destination: { lat: destination.lat, lon: destination.lon },
+        mode,
+        signal: ctrl.signal,
+      });
+      setPlanned(routes);
+      setBaselineRouteId((prev) =>
+        routes.some((r) => r.route.id === prev) ? prev : (routes[0]?.route.id ?? ''),
+      );
+      setPhase('ready');
+    } catch (e) {
+      if (ctrl.signal.aborted) return;
+      setPlanned([]);
+      setError(messageOf(e));
+      setPhase('error');
+    }
+  }, [origin, destination, mode]);
 
-  const segments = useMemo(() => {
-    const unique = new Map<string, Segment>();
-    for (const r of routes) for (const s of r.segments) if (!unique.has(s.id)) unique.set(s.id, s);
-    return [...unique.values()];
+  useEffect(() => {
+    if (origin && destination) void plan();
+    return () => abortRef.current?.abort();
+  }, [origin, destination, mode, plan]);
+
+  const useMyLocation = useCallback(async () => {
+    setPhase('locating');
+    setError(null);
+    try {
+      const pos: LatLon = await realApi.locate();
+      // Reverse-geocode for a readable label; fall back to a plain label rather
+      // than inventing a street name.
+      const place = await realApi.reverse(pos.lat, pos.lon);
+      setOrigin(
+        place ?? {
+          id: 'here',
+          name: 'Current location',
+          detail: `${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}`,
+          lat: pos.lat,
+          lon: pos.lon,
+        },
+      );
+      setPhase(origin && destination ? 'ready' : 'idle');
+    } catch (e) {
+      setError(messageOf(e));
+      setPhase('error');
+    }
+  }, [origin, destination]);
+
+  const swap = useCallback(() => {
+    setOrigin((o) => {
+      if (destination) setDestination(o);
+      return destination;
+    });
+  }, [destination]);
+
+  const retry = useCallback(() => {
+    void plan();
+  }, [plan]);
+
+  const routes: Route[] = useMemo(() => planned.map((p) => p.route), [planned]);
+
+  const segments: Segment[] = useMemo(() => {
+    const seen = new Map<string, Segment>();
+    for (const r of routes) for (const s of r.segments) if (!seen.has(s.id)) seen.set(s.id, s);
+    return [...seen.values()];
   }, [routes]);
 
-  const origin = useMemo(() => originOf(routes, { lat: 27.6755, lon: 85.306 }), [routes]);
-  const destination = useMemo(() => destinationOf(routes, { lat: 27.658, lon: 85.326 }), [routes]);
-
-  /** Effective parameter override (currently only the optional fitted bias). */
-  const paramsOverride = useMemo(() => (fittedBias ? { bias: fittedBias } : undefined), [fittedBias]);
+  const paramsOverride = useMemo(
+    () => (fittedBias ? { bias: fittedBias } : undefined),
+    [fittedBias],
+  );
 
   const ctx = useMemo(
     () => (forecast ? { forecast, params: paramsOverride } : null),
     [forecast, paramsOverride],
   );
 
-  /** The UNCORRECTED model prediction, handed to the data layer as PredictFn. */
-  const predictFn = useMemo<PredictFn | null>(
+  const predictFn = useMemo(
     () => (ctx ? (seg: Segment, t: string) => engine.predict(seg, t, ctx) : null),
     [ctx],
   );
 
-  // ── Memoised corrections, keyed by (observations version, atISO) ──────────
-  const correctionCacheRef = useRef(new Map<string, CorrectionMap>());
+  const correctionsCache = useRef(new Map<string, CorrectionMap>());
 
   const correctionsAt = useCallback(
     (atISO: string): CorrectionMap => {
       if (!predictFn) return {};
-      const key = `${observationsVersion}|${atISO}`;
-      const cache = correctionCacheRef.current;
-
+      const key = `${observations.length}|${atISO}`;
+      const cache = correctionsCache.current;
       const hit = cache.get(key);
       if (hit) return hit;
 
@@ -214,23 +198,15 @@ export function useExposureModel(): ExposureModel {
         // A failure in the evidence layer must never break the map.
         map = {};
       }
-
-      // Bound the cache so a long session cannot grow without limit.
       if (cache.size > 240) cache.clear();
       cache.set(key, map);
       return map;
     },
-    [observations, observationsVersion, predictFn, segments],
-  );
-
-  const corrections = useMemo(
-    () => (forecast ? correctionsAt(isoAt(nowMs + offsetMin * 60_000)) : {}),
-    [forecast, correctionsAt, nowMs, offsetMin],
+    [observations, predictFn, segments],
   );
 
   const departISO = useMemo(() => isoAt(nowMs + offsetMin * 60_000), [nowMs, offsetMin]);
 
-  // ── Comparison ────────────────────────────────────────────────────────────
   const comparison = useMemo<Comparison | null>(() => {
     if (!ctx || routes.length === 0 || !baselineRouteId) return null;
     try {
@@ -243,7 +219,6 @@ export function useExposureModel(): ExposureModel {
     }
   }, [ctx, routes, baselineRouteId, mode, departISO, correctionsAt]);
 
-  // ── Departure sweep ───────────────────────────────────────────────────────
   const sweep = useMemo<SweepPoint[]>(() => {
     if (!ctx || routes.length === 0 || !baselineRouteId) return [];
     try {
@@ -259,50 +234,60 @@ export function useExposureModel(): ExposureModel {
     } catch {
       return [];
     }
-  }, [ctx, routes, baselineRouteId, mode, nowHourISO, correctionsAt, observationsVersion]);
-
-  // ── Sensitivity: recomputed only when the user asks for it ────────────────
-  const [sensitivity, setSensitivity] = useState<SensitivityReport | null>(null);
-  useEffect(() => {
-    setSensitivity(null);
-  }, [departISO, mode, baselineRouteId, observationsVersion]);
+  }, [ctx, routes, baselineRouteId, mode, nowHourISO, correctionsAt, observations.length]);
 
   const runSensitivity = useCallback(() => {
     if (!ctx || routes.length < 2 || !baselineRouteId) return;
     try {
-      setSensitivity(engine.sensitivity(routes, mode, departISO, { ...ctx, corrections }));
+      setSensitivityReport(engine.sensitivity(routes, mode, departISO, {
+        ...ctx,
+        corrections: correctionsAt(departISO),
+      }));
     } catch {
-      setSensitivity(null);
+      setSensitivityReport(null);
     }
-  }, [ctx, routes, mode, departISO, baselineRouteId, corrections]);
+  }, [ctx, routes, mode, departISO, baselineRouteId, correctionsAt]);
+
+  useEffect(() => setSensitivityReport(null), [departISO, mode, baselineRouteId, observations.length]);
+
+  const addObservation = useCallback((obs: Observation) => {
+    setObservations((prev) => [...prev, obs]);
+  }, []);
 
   return {
-    state,
+    phase,
     error,
     forecast,
-    routes,
-    segments,
     origin,
+    setOrigin,
     destination,
-    school,
+    setDestination,
     mode,
     setMode,
+    swap,
+    planned,
+    routes,
+    segments,
     baselineRouteId,
     setBaselineRouteId,
     offsetMin,
     setOffsetMin,
     departISO,
     nowHourISO,
+    nowMs,
     observations,
     addObservation,
-    observationsVersion,
-    corrections,
+    corrections: useMemo(() => correctionsAt(departISO), [correctionsAt, departISO]),
     comparison,
     sweep,
     sensitivity,
+    sensitivityReport,
     runSensitivity,
     fittedBias,
-    applyFittedBias,
-    nowMs,
+    applyFittedBias: setFittedBias,
+    useMyLocation,
+    retry,
   };
 }
+
+export type ExposureModel = ReturnType<typeof useExposureModel>;

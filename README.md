@@ -1,195 +1,134 @@
 # Exposure Vite
 
-**Modeled estimate, not a measurement. Not medical advice.**
+**Relative PM2.5 exposure for real commute routes in the Kathmandu Valley.**
 
-A client-side web app (Vite + React 18 + TypeScript + Leaflet, no backend) that estimates **relative PM2.5 exposure** along commute routes in the Kathmandu Valley and recommends a route or departure time ONLY when the estimate is robust to uncertainty.
+Search two real places. We route along actual OpenStreetMap streets, then tell you which
+route has lower **modeled** exposure — and say "effectively tied" when the difference
+is not real.
 
-> **Integrity statement:** This is a hackathon prototype. Every number shown is a modeled estimate based on assumptions explicitly listed in the app. No accuracy figures are claimed anywhere. The validation panel says "Not yet validated. Requires real station data."
-
----
-
-## What it does
-
-- **Live forecast** (Open-Meteo) → bias-corrected background PM2.5
-- **Street prior** from road class, distance to main roads, greenness
-- **Evidence layer**: haze photos (dark-channel prior) + crowd reports → relative corrections
-- **Uncertainty-aware decisions**: Monte Carlo draws → only recommends when robust
-- **Departure sweep**: 0 to +180 min slider
-- **Evidence collection**: take haze photos, report smoke/dust/clear, pinned on map
-- **Diary**: save commutes, weekly dose chart, load demo week
-- **School window**: outdoor/indoor exposure across 06:00–17:00 NPT
-- **Demo tour**: 6-step guided walkthrough
+> Modeled estimate, not a measurement. Not medical advice.
 
 ---
 
-## How to run
+## Run it
 
 ```bash
 npm install
-npm run dev      # dev server at http://localhost:5173
-npm run build    # production build to dist/
-npm run typecheck
-npm run test     # runs all 243 tests (engine + data + UI)
+npm run dev        # http://localhost:5173
 ```
 
-Requires Node 20+.
+```bash
+npm run typecheck  # strict TypeScript
+npm test           # vitest
+npm run build      # production build
+```
+
+No API keys, no backend, no accounts. Requires network access for live data; degrades
+honestly when offline.
 
 ---
 
-## Architecture (text diagram)
+## Where the data comes from
 
-```
-src/
-├── engine/          # Pure, deterministic library (no I/O, no Math.random)
-│   ├── time.ts      # UTC ↔ Nepal local time (UTC+05:45)
-│   ├── interp.ts    # Linear forecast interpolation
-│   ├── background.ts# Bias correction + stagnation index
-│   ├── multiplier.ts# Street prior + near-road decay + stagnation
-│   ├── predict.ts   # Uncorrected C_bg × m' (used as PredictFn by data layer)
-│   ├── trip.ts      # Dose along route at segment midpoints
-│   ├── rng.ts       # mulberry32 + Box-Muller (seeded)
-│   ├── montecarlo.ts# Shared draws: ε_bg + ε_seg per unique segment
-│   ├── compare.ts   # Monte Carlo verdict (recommend/slight/none)
-│   ├── sweep.ts     # Departure-time sweep
-│   ├── sensitivity.ts# ±20% roadExcess stability
-│   ├── school.ts    # 06:00–17:00 NPT window
-│   └── index.ts     # EngineApi export
-│
-├── data/            # Forecast client, fixtures, evidence corrections, backtest
-│   ├── forecast/    # Open-Meteo client (isolated optional vars), cache, merge
-│   ├── fixtures/    # syntheticForecast (offline), demoRoutes, seedObservations
-│   ├── routes/      # demoRoutes loader + validators
-│   ├── photo/       # dark-channel haze analysis
-│   ├── corrections/ # Bayesian regression + space-time GP
-│   ├── validation/  # CSV parse, leave-one-day-out backtest
-│   └── index.ts     # DataApi export
-│
-├── ui/              # React 18 + Leaflet
-│   ├── state/       # useExposureModel (orchestrates engine + data)
-│   ├── cards/       # Planner, Summary, BreakdownDrawer, Dock, EvidenceModal, DiaryModal, SchoolModal, DemoTourModal
-│   ├── map/         # MapView (Leaflet), exposureColor ramp
-│   └── App.tsx      # Shell: map + overlays + state wiring
-│
-└── contracts/       # Single source of truth for shared types (engine ↔ data ↔ ui)
-```
+Everything on screen traces to one of these. Nothing is invented.
 
-**Seam rule**: `ui` imports only `engine` and `data` via `ui/wiring.ts`. `data` never imports `engine` — the engine's uncorrected prediction reaches `data` as a `PredictFn` argument.
+| What | Source | Keyless? |
+|---|---|---|
+| Place search | **Photon** (Komoot), biased to Kathmandu Valley | yes, CORS `*` |
+| Route geometry + travel times | **FOSSGIS OSRM** — real `foot` / `bike` / `car` profiles | yes, CORS `*` |
+| Road class, lane counts | **Valhalla** `/route` → `/trace_attributes` (OSM) | yes, CORS `*` |
+| PM2.5, PM10, AQI, dust, aerosol depth | **Open-Meteo** air-quality | yes, CORS `*` |
+| Wind, humidity, boundary layer, inversion | **Open-Meteo** forecast | yes, CORS `*` |
+| Basemap tiles | OpenStreetMap | yes |
+
+Two decisions worth knowing about:
+
+- **`domains=cams_global` is not set here.** The sibling Exposure-Diary project needed it
+  because that server would otherwise serve the CAMS *Europe* model. This client requests
+  Kathmandu coordinates directly and was verified live, so no override is applied.
+- **Nominatim is deliberately not used.** Its policy forbids client-side type-ahead, which is
+  exactly what the search box does. Photon has no such restriction.
+
+### What is *not* real
+
+- **Traffic.** There is no keyless, no-signup traffic API for Nepal (Mapbox, HERE, TomTom and
+  Google all require keys; open feeds are US/Canada city systems). Rather than show a
+  plausible-looking fiction, traffic was removed. The app compares exposure and travel time.
+- **Street-level concentration.** The gridded forecast cannot see individual streets. Route
+  values are *relative estimates* built on assumed road-type multipliers.
+- **Signals, bus stops, greenery, building density.** No keyless source exists, so these are
+  held at neutral assumptions and do not differentiate routes. Stated in the Method panel.
+- **Road multipliers.** Literature-informed assumptions, not Kathmandu measurements.
+
+When a live call fails, the app shows an **honest error with a retry** — it never falls back to
+fabricated routes or invented evidence pins. There are no seeded demo routes and no simulated
+observation pins in the shipping build.
 
 ---
 
-## What is real vs assumed vs synthetic
+## How it works
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Open-Meteo forecast | **Real** | Live API (pm2_5, wind, RH, BLH, inversion). Optional vars (AOD, dust, wind_dir, BLH, T_700hPa) fail soft. |
-| Bias correction | **Assumed** | Identity (a=1, b=0) by default. Fitted bias from user CSV replaces it. |
-| Road excess (e_c) | **Assumed** | trunk=0.45, primary=0.40, secondary=0.25, tertiary=0.10, residential=0.05, footway=0, path=0. |
-| Near-road decay λ | **Assumed** | 120 m |
-| Green excess e_g | **Assumed** | 0.15 |
-| Rush hours (local) | **Assumed** | 07–09, 16–18 on trunk/primary/secondary, factor 1.5 |
-| Stagnation α, clamps | **Assumed** | α=0.5, clamp [0.5, 2], u_min=0.5 m/s |
-| Mode params | **Assumed** | walk 4.5 km/h 1.3 m³/h; cycle 15 km/h 2.8 m³/h; bus 12 km/h 0.7 m³/h × 0.9 infiltration |
-| Demo routes | **Real geometry, authored features** | Paths follow real OSM roads via OSRM (`scripts/fetchOsmRoutes.mjs`, source: 'osm-derived'; 3 routes, 15–22 segments each, 3.4–4.6 km, 2 shared segments). Road classes + density features are hand-authored ASSUMED proxies, not OSM tags. |
-| Seed observations | **Synthetic** | 30 items (24 photo / 6 report), `isSimulated: true`, deterministic per anchor hour. |
-| Haze photos (user) | **Real** | User upload → dark-channel analysis → relative haze index. |
-| Crowd reports | **Real** | User taps smoky/dusty/clear → fixed log-residual. |
-| Station CSV | **User-supplied** | Not shipped. Upload your own for backtest. |
+```
+src/engine/     pure, deterministic scientific core (no I/O, no Date.now, no Math.random)
+src/data/       forecast, routing, geocoding, photo analysis, corrections, backtest
+src/ui/         React UI; src/ui/wiring.ts is the only file importing engine/data
+```
 
-All assumed values are listed in the app's **Assumptions** table (Scientific Breakdown → Assumptions).
+A frozen contract (`src/contracts/index.ts`) separates the three layers. Monte Carlo uses a
+seeded PRNG, so every comparison is reproducible.
+
+The model, in brief:
+
+1. **Background.** A live hourly gridded forecast sets *when* pollution is worse across the
+   valley. It sets the level; it cannot see streets.
+2. **Street prior.** Real OSM road class plus measured distance to the nearest other main
+   road produce a multiplicative prior around 1.
+3. **Evidence.** Haze photos and crowd reports nudge nearby segments up or down *relative to
+   each other*. They never change the regional level.
+4. **Uncertainty decides.** Monte Carlo draws perturb the background once per comparison and
+   each segment separately. A recommendation appears only when the same route wins clearly and
+   repeatedly — otherwise the app says the options are effectively tied.
+
+Every parameter is an explicit, labelled assumption. Nothing has been calibrated against field
+measurements, and the app claims no accuracy figures.
 
 ---
 
-## Limitations
+## Validation
 
-1. **Forecast is coarse** — gridded model cannot see individual streets.
-2. **Road multipliers are assumptions** — from general air-pollution literature, not Kathmandu measurements.
-3. **Photo haze is a relative nudge** — affected by light, cloud, sun angle, unknown scene depth.
-3. **Dust from roadworks/unpaved roads** not captured by road class.
-4. **Demo route features are authored** — paths are real OSM roads, but road classes, green fractions and densities on them are proxies, not OSM tags.
-5. **Outputs are modeled estimates** — never medical or health-risk claims. The app never says "safe" or "dangerous".
+There is no accuracy number anywhere in this app, because none has been measured here. The
+validation panel says *"Not yet validated. Requires real station data."*
+
+To validate it yourself, download about a week of hourly PM2.5 for Kathmandu (OpenAQ or an
+embassy monitor) as CSV with `time` and `pm25` columns, then open **Scientific Breakdown →
+Validation** and upload it. The app fetches matching forecast history, aligns by UTC hour and
+runs a **leave-one-day-out** backtest, reporting Pearson r, MAE, RMSE, bias and NMAE before and
+after bias correction, plus effective sample size, skill versus persistence and split-conformal
+coverage. You can then apply the fitted bias correction to the live model.
 
 ---
 
 ## Honest framing for a pitch
 
-> "Exposure Vite is a **modeled-estimate** tool for relative PM2.5 exposure along commute routes in Kathmandu. It fuses a live gridded forecast with a street-level prior and crowd evidence, then uses Monte Carlo uncertainty to decide whether a recommendation is robust enough to show. It recommends only when the evidence is clear — otherwise it honestly says 'no meaningful difference'. No accuracy claims are made; the validation panel explicitly requires user-supplied station data."
+> Exposure Vite is a **modeled-estimate** tool for relative PM2.5 exposure along real commute
+> routes in Kathmandu. It fuses a live gridded forecast with real OpenStreetMap road data and
+> user-contributed evidence, then uses Monte Carlo uncertainty to decide whether a
+> recommendation is robust enough to show. It recommends only when the evidence is clear —
+> otherwise it honestly says the options are effectively tied.
 
 ---
 
-## Validation procedure (run in 30 minutes with a real station CSV)
+## Limitations
 
-1. Obtain hourly PM2.5 station data for Kathmandu (e.g., OpenAQ, US Embassy monitor) as CSV with columns `time` (or `datetime`, `timestamp`) and `pm25` (or `pm2.5`, `value`). Include at least 7 days.
-2. In the app, open **Scientific Breakdown → Validation**.
-3. Click "Upload CSV" and select your file.
-4. The app fetches 7 days of forecast history, aligns by UTC hour, runs **leave-one-day-out** backtest.
-4. View the report: raw API vs. bias-corrected metrics (r, MAE, RMSE, bias, NMAE), effective sample size, skill vs persistence, split conformal intervals (α=0.1), fitted bias parameters.
-4. If satisfied, click **"Apply fitted bias correction"** — the engine will use the fitted `a, b, σ_bg` for all subsequent computations.
-
-**Expected outcome with real data:** The bias-corrected model should reduce MAE vs raw API. The fitted bias parameters are then used for live predictions. Without a CSV, the validation panel honestly states: "Not yet validated. Requires real station data."
-
----
-
-## Project status
-
-| Phase | Status |
-|-------|--------|
-| 0 Bootstrap | ✅ Done |
-| 1 Engine core | ✅ Done (94 tests) |
-| 2 Data layer | ✅ Done (135 tests) |
-| 3 UI vertical slice | ✅ Done (14 tests) |
-| 4 Photo haze + corrections | ✅ Done |
-| 5 Validation + sensitivity | ✅ Done |
-| 6 Diary, School, Demo | ✅ Done |
-| 7 Polish + README | ✅ Done |
-| 8 Verification | 🔄 In progress |
-
-**Known rough edges:**
-- CARTO basemap requires API key → using OSM with CSS dark filter (acceptable fallback)
-- Simulated demo pins cluster at zoom 14–15 (30 pins in ~3 km corridor)
-- Demo tour requires manual click to start (no auto-start)
-- Dark mode screenshot not captured in CI (manual verification needed)
-- `npm test` whole-suite blocked by environment hook (run per-file: `npx vitest run src/engine`)
-
----
-
-## Verification checklist (Phase 8)
-
-- [x] AC-1: `npm run typecheck`, `npm test`, `npm run build` pass from clean
-- [x] AC-2: Offline works with "Synthetic offline data" badge
-- [x] AC-3: Planner/summary/map/breakdown all update together
-- [x] AC-4: Photo changes nearby segment style/confidence, can flip verdict
-- [x] AC-5: Both 'recommend' and 'none' verdicts occur across mode/time/baseline
-- [x] AC-6: Identical routes → pBetter=0, verdict='none'
-- [x] AC-7: Validation empty state, CSV upload works, malformed CSV handled
-- [x] AC-8: No hardcoded accuracy figures anywhere (grep clean)
-- [x] AC-9: Every guessed parameter marked ASSUMED in code + Assumptions table
-- [x] AC-10: No NaN/Infinity from engine (fuzz tests pass)
-- [x] AC-11: 360px layout works, keyboard operable, reduced motion respected
-- [x] AC-12: No forbidden wording (safe/dangerous/healthy/unsafe/risk/measured)
-- [x] AC-13: localStorage wrapped in try/catch, works when disabled
-- [x] AC-14: Rush/school logic uses Nepal time (tested under 5 timezones)
-- [x] AC-15: Git clean, origin correct, no unwanted files, hourly commits
-- [x] AC-16: First screen free of jargon; technical detail behind "View Scientific Breakdown"
-- [x] AC-17: Theme toggle works, persists, no flash, OSM dark filter works
-- [x] AC-18: Map full viewport, no sidebar, no page scroll, overlays don't block pan
-- [x] AC-19: All synthetic data labeled, isolated in `src/data/fixtures/`, no invented citations/stats/results
-
-**Git log (recent):**
-```bash
-a677acc feat(phase6): diary, school window, demo tour
-e7a8d8c feat(validation): Phase 5 — backtest CSV upload + sensitivity + apply fitted bias
-9d7f13d feat(photo): Phase 4 — photo haze + corrections + evidence UI
-aac552b feat(ui): Phase 3 vertical slice — full-screen map, planner, summary, breakdown, dark/light, evidence modal
-a323865 feat(data): Phase 2 — forecast client, demo routes, seeds, corrections, backtest
-10564a6 fix(engine): NPT day start, midpoint dose sampling, all 94 engine tests green
-3766259 Phase 0: bootstrap
-cc35a5d Initial commit
-```
-
-**Ready to push: `git push -u origin main`**
-
----
+- The forecast is a coarse gridded model; it cannot see individual streets.
+- Road multipliers are assumptions from general air-pollution literature, not Kathmandu
+  measurements.
+- Photo haze is a relative index affected by light, cloud, sun angle and unknown scene depth.
+- Dust from roadworks and unpaved roads is not captured by road class.
+- Traffic is not modelled at all (no keyless data source for Nepal).
+- Outputs are modeled exposure estimates, never medical or health-risk claims. The app never
+  calls a route or an hour "safe" or "dangerous".
 
 ## License
 
-MIT — but see integrity rules above. This is a prototype, not a product.
+MIT — but see the integrity notes above. This is a prototype, not a product.
